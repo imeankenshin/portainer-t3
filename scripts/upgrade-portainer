@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2029
 set -euo pipefail
 
 readonly SSH_TARGET="${PORTAINER_SSH_TARGET:-umbrel@umbrel}"
 readonly PORTAINER_URL="${PORTAINER_URL:-http://umbrel:9000}"
 readonly APP_DATA_DIR="/home/umbrel/umbrel/app-data/portainer"
 readonly REMOTE_COMPOSE="$APP_DATA_DIR/docker-compose.yml"
+readonly REMOTE_ENTRYPOINT="$APP_DATA_DIR/entrypoint.sh"
 readonly SOURCE_DATA="$APP_DATA_DIR/data/portainer"
 readonly TARGET_DATA="$APP_DATA_DIR/data/portainer-mcp-2.44"
 readonly COMPOSE_TEMPLATE="umbrel-portainer-compose.yml"
+readonly ENTRYPOINT_TEMPLATE="umbrel-portainer-entrypoint.sh"
 readonly SOURCE_IMAGE="portainer/portainer-ce:2.39.6-alpine@sha256:f35a74e590973d9c77fa2c4930c64c1a05626eedf64462b3d2eebef5a7c710e3"
 readonly TARGET_IMAGE="portainer/portainer-ce:2.44.0-alpine@sha256:5376fd96f0bae14be7285ceb24c5cf9470dc23f19cdde74ff4c65d11cbe96eb2"
+readonly SOURCE_COMMAND='--host unix:///var/run/docker.sock --admin-password-file=/default-password'
+readonly TARGET_COMMAND="$SOURCE_COMMAND --http-enabled"
+readonly MANAGED_SUBNET="172.30.0.0/16"
 readonly KEYCHAIN_SERVICE="${PORTAINER_KEYCHAIN_SERVICE:-portainer-t3-mcp}"
 readonly KEYCHAIN_ACCOUNT="${PORTAINER_KEYCHAIN_ACCOUNT:-${USER:-opencode}}"
 
@@ -29,6 +35,10 @@ for command in curl jq scp security ssh shasum tar; do
 done
 [[ -f "$COMPOSE_TEMPLATE" ]] || {
   printf 'Missing compose template: %s\n' "$COMPOSE_TEMPLATE" >&2
+  exit 1
+}
+[[ -f "$ENTRYPOINT_TEMPLATE" ]] || {
+  printf 'Missing entrypoint template: %s\n' "$ENTRYPOINT_TEMPLATE" >&2
   exit 1
 }
 
@@ -82,6 +92,17 @@ current_command="$(ssh "$SSH_TARGET" \
 current_compose_sha="$(ssh "$SSH_TARGET" \
   "sha256sum '$REMOTE_COMPOSE'" | cut -d' ' -f1)"
 target_compose_sha="$(shasum -a 256 "$COMPOSE_TEMPLATE" | cut -d' ' -f1)"
+current_entrypoint_sha="$(ssh "$SSH_TARGET" \
+  "sha256sum '$REMOTE_ENTRYPOINT'" | cut -d' ' -f1)"
+target_entrypoint_sha="$(shasum -a 256 "$ENTRYPOINT_TEMPLATE" | cut -d' ' -f1)"
+current_managed_subnet="$(ssh "$SSH_TARGET" \
+  "docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' portainer_docker_1" |
+  grep '^PORTAINER_MANAGED_SUBNET=' | cut -d= -f2- || true)"
+current_forwarding=0
+if ssh "$SSH_TARGET" \
+  "docker exec portainer_docker_1 iptables -C DOCKER-USER -s '$MANAGED_SUBNET' -j ACCEPT && docker exec portainer_docker_1 iptables -C DOCKER-USER -d '$MANAGED_SUBNET' -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT"; then
+  current_forwarding=1
+fi
 
 printf 'Umbrel app state: %s\n' "$app_state"
 printf 'Current image:    %s\n' "$current_image"
@@ -90,23 +111,34 @@ printf 'Current command:  %s\n' "$current_command"
 printf 'Target image:     %s\n' "$TARGET_IMAGE"
 printf 'Current compose:  %s\n' "$current_compose_sha"
 printf 'Target compose:   %s\n' "$target_compose_sha"
+printf 'Current entrypoint: %s\n' "$current_entrypoint_sha"
+printf 'Target entrypoint:  %s\n' "$target_entrypoint_sha"
+printf 'Managed subnet:     %s\n' "${current_managed_subnet:-not configured}"
+printf 'Managed forwarding: %s\n' "$current_forwarding"
 
 if [[ "$app_state" != ready ]]; then
   printf 'Portainer Umbrel app is not ready; refusing upgrade.\n' >&2
   exit 1
 fi
 
+config_only=0
 if [[ "$current_image" == "$TARGET_IMAGE" && "$current_data" == "$TARGET_DATA" ]]; then
-  printf 'Portainer is already configured for 2.44.0.\n'
-  exit 0
-fi
-
-if [[ "$current_image" != "$SOURCE_IMAGE" || "$current_data" != "$SOURCE_DATA" ]]; then
+  if [[ "$current_entrypoint_sha" == "$target_entrypoint_sha" &&
+        "$current_managed_subnet" == "$MANAGED_SUBNET" &&
+        "$current_forwarding" == 1 ]]; then
+    printf 'Portainer is already configured for 2.44.0.\n'
+    exit 0
+  fi
+  config_only=1
+  expected_command="$TARGET_COMMAND"
+elif [[ "$current_image" == "$SOURCE_IMAGE" && "$current_data" == "$SOURCE_DATA" ]]; then
+  expected_command="$SOURCE_COMMAND"
+else
   printf 'Unexpected Portainer source image or data mount; refusing overwrite.\n' >&2
   exit 1
 fi
 
-if [[ "$current_command" != '--host unix:///var/run/docker.sock --admin-password-file=/default-password' ]]; then
+if [[ "$current_command" != "$expected_command" ]]; then
   printf 'Unexpected Portainer command; refusing overwrite.\n' >&2
   exit 1
 fi
@@ -117,13 +149,27 @@ if ssh "$SSH_TARGET" "test -e '$TARGET_DATA'"; then
 fi
 
 if (( apply == 0 )); then
+  if (( config_only == 1 )); then
+    cat <<'EOF'
+
+Dry run only. Portainer data is already on 2.44.0. Apply mode will:
+1. Back up the current Compose and Docker entrypoint declarations.
+2. Stop the Portainer Umbrel app through umbreld.
+3. Install the reviewed declarations without copying or migrating data.
+4. Start the app and validate version, API authentication, endpoint state, and managed-network forwarding.
+5. Restore the original declarations automatically on failure.
+
+Run ./scripts/upgrade-portainer --apply to continue.
+EOF
+    exit 0
+  fi
   cat <<'EOF'
 
 Dry run only. Apply mode will:
 1. Pull the digest-pinned Portainer 2.44.0 Alpine image.
 2. Stop the Portainer Umbrel app through umbreld.
 3. Back up the stopped 2.39.6 data and clone it to data/portainer-mcp-2.44.
-4. Install the reviewed Compose declaration and start the app through umbreld.
+4. Install the reviewed Compose and Docker entrypoint declarations and start the app through umbreld.
 5. Validate version, API authentication, and endpoint IDs/statuses.
 6. Restore the original Compose and untouched 2.39 data automatically on failure.
 
@@ -141,7 +187,9 @@ target_created=0
 mkdir -p "$backup_dir"
 chmod 700 "$backup_dir"
 scp -q "$SSH_TARGET:$REMOTE_COMPOSE" "$backup_dir/docker-compose.yml"
+scp -q "$SSH_TARGET:$REMOTE_ENTRYPOINT" "$backup_dir/entrypoint.sh"
 chmod 600 "$backup_dir/docker-compose.yml"
+chmod 600 "$backup_dir/entrypoint.sh"
 
 printf 'Pulling target and backup images...\n'
 ssh "$SSH_TARGET" \
@@ -154,6 +202,8 @@ rollback() {
   ssh "$SSH_TARGET" \
     "umbreld client apps.stop.mutate --appId portainer >/dev/null" || true
   scp -q "$backup_dir/docker-compose.yml" "$SSH_TARGET:$REMOTE_COMPOSE"
+  scp -q "$backup_dir/entrypoint.sh" "$SSH_TARGET:$REMOTE_ENTRYPOINT"
+  ssh "$SSH_TARGET" "chmod 755 '$REMOTE_ENTRYPOINT'" || true
   if (( target_created == 1 )); then
     ssh "$SSH_TARGET" \
       "if test -e '$TARGET_DATA'; then mv '$TARGET_DATA' '$TARGET_DATA.failed-$timestamp'; fi" || true
@@ -172,31 +222,41 @@ rollback_required=1
 ssh "$SSH_TARGET" \
   "umbreld client apps.stop.mutate --appId portainer >/dev/null"
 
-printf 'Backing up stopped Portainer data...\n'
-ssh "$SSH_TARGET" \
-  "docker run --rm --mount type=bind,src='$SOURCE_DATA',dst=/source,readonly alpine:3.22 tar -C /source -czf - ." \
-  >"$backup_dir/portainer-data-2.39.6.tar.gz"
-chmod 600 "$backup_dir/portainer-data-2.39.6.tar.gz"
-tar -tzf "$backup_dir/portainer-data-2.39.6.tar.gz" >/dev/null
+if (( config_only == 0 )); then
+  printf 'Backing up stopped Portainer data...\n'
+  ssh "$SSH_TARGET" \
+    "docker run --rm --mount type=bind,src='$SOURCE_DATA',dst=/source,readonly alpine:3.22 tar -C /source -czf - ." \
+    >"$backup_dir/portainer-data-2.39.6.tar.gz"
+  chmod 600 "$backup_dir/portainer-data-2.39.6.tar.gz"
+  tar -tzf "$backup_dir/portainer-data-2.39.6.tar.gz" >/dev/null
 
-printf 'Cloning data into an isolated migration directory...\n'
-if (( existing_target == 1 )); then
-  ssh "$SSH_TARGET" "mv '$TARGET_DATA' '$archived_target'"
+  printf 'Cloning data into an isolated migration directory...\n'
+  if (( existing_target == 1 )); then
+    ssh "$SSH_TARGET" "mv '$TARGET_DATA' '$archived_target'"
+  fi
+  ssh "$SSH_TARGET" "mkdir '$TARGET_DATA'"
+  target_created=1
+  ssh "$SSH_TARGET" \
+    "docker run --rm --mount type=bind,src='$SOURCE_DATA',dst=/source,readonly --mount type=bind,src='$TARGET_DATA',dst=/target alpine:3.22 sh -euc 'set -o pipefail; cd /source; tar -cf - . | tar -xf - -C /target'"
 fi
-ssh "$SSH_TARGET" "mkdir '$TARGET_DATA'"
-target_created=1
-ssh "$SSH_TARGET" \
-  "docker run --rm --mount type=bind,src='$SOURCE_DATA',dst=/source,readonly --mount type=bind,src='$TARGET_DATA',dst=/target alpine:3.22 sh -euc 'set -o pipefail; cd /source; tar -cf - . | tar -xf - -C /target'"
 
 printf 'Installing reviewed Umbrel Compose declaration...\n'
 scp -q "$COMPOSE_TEMPLATE" "$SSH_TARGET:$REMOTE_COMPOSE.mcp-new"
+scp -q "$ENTRYPOINT_TEMPLATE" "$SSH_TARGET:$REMOTE_ENTRYPOINT.mcp-new"
 uploaded_sha="$(ssh "$SSH_TARGET" \
   "sha256sum '$REMOTE_COMPOSE.mcp-new'" | cut -d' ' -f1)"
+uploaded_entrypoint_sha="$(ssh "$SSH_TARGET" \
+  "sha256sum '$REMOTE_ENTRYPOINT.mcp-new'" | cut -d' ' -f1)"
 [[ "$uploaded_sha" == "$target_compose_sha" ]] || {
   printf 'Uploaded Compose checksum mismatch.\n' >&2
   exit 1
 }
-ssh "$SSH_TARGET" "mv '$REMOTE_COMPOSE.mcp-new' '$REMOTE_COMPOSE'"
+[[ "$uploaded_entrypoint_sha" == "$target_entrypoint_sha" ]] || {
+  printf 'Uploaded entrypoint checksum mismatch.\n' >&2
+  exit 1
+}
+ssh "$SSH_TARGET" \
+  "chmod 755 '$REMOTE_ENTRYPOINT.mcp-new' && mv '$REMOTE_COMPOSE.mcp-new' '$REMOTE_COMPOSE' && mv '$REMOTE_ENTRYPOINT.mcp-new' '$REMOTE_ENTRYPOINT'"
 
 printf 'Starting Portainer 2.44.0 through umbreld...\n'
 ssh "$SSH_TARGET" \
@@ -230,13 +290,17 @@ for endpoint_id in $docker_endpoint_ids; do
     -H "X-API-Key: $api_key" \
     "$PORTAINER_URL/api/endpoints/$endpoint_id/docker/_ping" >/dev/null
 done
+ssh "$SSH_TARGET" \
+  "docker exec portainer_docker_1 iptables -C DOCKER-USER -s '$MANAGED_SUBNET' -j ACCEPT && docker exec portainer_docker_1 iptables -C DOCKER-USER -d '$MANAGED_SUBNET' -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT"
 
 rollback_required=0
 trap - EXIT
 unset api_key
 printf 'Portainer upgrade complete: %s\n' "$detected_version"
 printf 'Backup: %s\n' "$backup_dir"
-printf 'Untouched rollback data: %s\n' "$SOURCE_DATA"
-if (( existing_target == 1 )); then
-  printf 'Previous 2.44 data archived at: %s\n' "$archived_target"
+if (( config_only == 0 )); then
+  printf 'Untouched rollback data: %s\n' "$SOURCE_DATA"
+  if (( existing_target == 1 )); then
+    printf 'Previous 2.44 data archived at: %s\n' "$archived_target"
+  fi
 fi

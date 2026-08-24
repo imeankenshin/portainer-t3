@@ -66,11 +66,14 @@ SSH接続で再実行します。
 - 停止中の2.39データを `backups/` へ保存
 - 元データを `data/portainer-mcp-2.44` へ複製し、2.44.0は複製側だけをmigration
 - Portainer imageだけをdigest固定の2.44.0へ変更
+- 管理stack用 `172.30.0.0/16` をouter nftablesの `DOCKER-USER` で許可
+- ComposeとDocker entrypointをchecksum検証付きで一体管理
 - version、APIキー、endpoint ID/statusを検証できるまで自動rollback
 - 成功後も元の2.39データを未変更のまま保持
 
-更新版Composeは `umbrel-portainer-compose.yml` として管理します。Umbrel App Storeの
-Portainer更新を行うとこのカスタマイズが上書きされる可能性があるため、更新後は
+更新版Composeとentrypointは `umbrel-portainer-compose.yml` と
+`umbrel-portainer-entrypoint.sh` として管理します。Umbrel App StoreのPortainer更新を
+行うとこのカスタマイズが上書きされる可能性があるため、更新後は
 `./scripts/portainer-doctor` でMCP互換性を再確認してください。Portainerが2.39.6へ
 戻っていた場合は、`./scripts/upgrade-portainer` のdry-runを確認してから
 `./scripts/upgrade-portainer --apply` を実行します。既存の2.44データは削除せず、

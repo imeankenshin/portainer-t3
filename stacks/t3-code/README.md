@@ -60,6 +60,13 @@ redeploy each stack manually after reviewing an image digest change.
 Use distinct stack names such as `t3-code-work` and `t3-code-personal`. Copy
 the matching example file into Portainer's stack environment variables.
 
+On this Umbrel installation, the Portainer-managed Docker daemon shares the
+host network namespace with the outer daemon but uses a different iptables
+backend. `umbrel-portainer-entrypoint.sh` therefore permits only the managed
+stack range `172.30.0.0/16` through the outer `DOCKER-USER` chain. Apply that
+entrypoint before deploying these subnets or sibling traffic and outbound DNS
+will time out.
+
 | Variable | Work | Personal |
 | --- | --- | --- |
 | `T3_HOST_PORT` | `3773` | `3774` |
