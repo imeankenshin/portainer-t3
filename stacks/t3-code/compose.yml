@@ -48,7 +48,7 @@ services:
         max-file: "3"
 
   t3-code:
-    image: "${T3_CODE_IMAGE:-ghcr.io/example/t3-code@sha256:0000000000000000000000000000000000000000000000000000000000000000}"
+    image: "${T3_CODE_IMAGE:-ghcr.io/imeankenshin/t3-code@sha256:e52a94a9492558e7327b653d1d5ae5be66b73d825f13ff34efc431153a63b1ec}"
     restart: unless-stopped
     stop_grace_period: 45s
     depends_on:
