@@ -14,11 +14,19 @@ CLIENT_VOLUME="${PREFIX}-client"
 WORKSPACE="$(mktemp -d)"
 
 cleanup() {
+    local exit_code=$?
     docker rm --force "$T3_CONTAINER" >/dev/null 2>&1 || true
     docker rm --force "$DIND_CONTAINER" >/dev/null 2>&1 || true
     docker network rm "$NETWORK" >/dev/null 2>&1 || true
     docker volume rm "$CA_VOLUME" "$CLIENT_VOLUME" >/dev/null 2>&1 || true
-    rm -rf "$WORKSPACE"
+    docker run --rm \
+        --entrypoint chown \
+        --volume "$WORKSPACE:/workspace" \
+        "$IMAGE_REF" \
+        -R "$(id -u):$(id -g)" /workspace \
+        >/dev/null 2>&1 || true
+    rm -rf "$WORKSPACE" || true
+    return "$exit_code"
 }
 trap cleanup EXIT
 
