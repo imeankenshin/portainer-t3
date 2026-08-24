@@ -1,0 +1,120 @@
+services:
+  docker:
+    image: docker:29.7.2-dind@sha256:ab772b0eaf0b01e5843f6574e50ccdfc34a7bdcb82bbf2decafde54a0ee884a9
+    privileged: true
+    restart: unless-stopped
+    stop_grace_period: 1m
+    environment:
+      DOCKER_TLS_CERTDIR: /certs
+      TZ: "${TZ:-Asia/Tokyo}"
+    command:
+      - "--storage-driver=overlay2"
+      - "--bip=${DIND_BIP:?Set DIND_BIP, for example 10.60.0.1/24}"
+      - "--default-address-pool=base=${DIND_ADDRESS_POOL:?Set DIND_ADDRESS_POOL, for example 10.60.128.0/17},size=24"
+      - "--dns=${DNS_PRIMARY:-1.1.1.1}"
+      - "--dns=${DNS_SECONDARY:-8.8.8.8}"
+      - "--log-driver=local"
+    dns:
+      - "${DNS_PRIMARY:-1.1.1.1}"
+      - "${DNS_SECONDARY:-8.8.8.8}"
+    ports:
+      - "127.0.0.1:${PREVIEW_HOST_START:?Set PREVIEW_HOST_START}-${PREVIEW_HOST_END:?Set PREVIEW_HOST_END}:30000-30049"
+    volumes:
+      - docker_data:/var/lib/docker
+      - docker_ca:/certs/ca
+      - docker_client:/certs/client
+      - workspace:/workspace
+    mem_limit: "${DIND_MEMORY_LIMIT:-3g}"
+    cpus: "${DIND_CPU_LIMIT:-6.0}"
+    pids_limit: 4096
+    healthcheck:
+      test:
+        - CMD
+        - docker
+        - --host=tcp://localhost:2376
+        - --tlsverify
+        - --tlscacert=/certs/client/ca.pem
+        - --tlscert=/certs/client/cert.pem
+        - --tlskey=/certs/client/key.pem
+        - info
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  t3-code:
+    image: "${T3_CODE_IMAGE:-ghcr.io/example/t3-code@sha256:0000000000000000000000000000000000000000000000000000000000000000}"
+    restart: unless-stopped
+    stop_grace_period: 45s
+    depends_on:
+      docker:
+        condition: service_healthy
+    environment:
+      TZ: "${TZ:-Asia/Tokyo}"
+      T3CODE_HOME: /var/lib/t3
+      T3CODE_HOST: 0.0.0.0
+      T3CODE_PORT: "3773"
+      T3CODE_LOG_LEVEL: "${T3CODE_LOG_LEVEL:-Info}"
+      DOCKER_HOST: tcp://docker:2376
+      DOCKER_TLS_VERIFY: "1"
+      DOCKER_CERT_PATH: /certs/client
+      GIT_USER_NAME: "${GIT_USER_NAME:?Set GIT_USER_NAME}"
+      GIT_USER_EMAIL: "${GIT_USER_EMAIL:?Set GIT_USER_EMAIL}"
+    dns:
+      - "${DNS_PRIMARY:-1.1.1.1}"
+      - "${DNS_SECONDARY:-8.8.8.8}"
+    ports:
+      - "127.0.0.1:${T3_HOST_PORT:?Set T3_HOST_PORT}:3773"
+    volumes:
+      - t3_data:/var/lib/t3
+      - opencode_data:/home/node/.local/share/opencode
+      - user_config:/home/node/.config
+      - ssh_data:/home/node/.ssh
+      - workspace:/workspace
+      - docker_client:/certs/client:ro
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: "${DEV_MEMORY_LIMIT:-2g}"
+    cpus: "${DEV_CPU_LIMIT:-2.0}"
+    pids_limit: 1024
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          const s=require('net').connect(3773,'127.0.0.1');
+          s.on('connect',()=>{s.end();process.exit(0)});
+          s.on('error',()=>process.exit(1))
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: "${STACK_SUBNET:?Set STACK_SUBNET}"
+
+volumes:
+  docker_data:
+  docker_ca:
+  docker_client:
+  t3_data:
+  opencode_data:
+  user_config:
+  ssh_data:
+  workspace:

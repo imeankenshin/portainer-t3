@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly PORTAINER_URL="${PORTAINER_URL:-http://umbrel:9000}"
+readonly KEYCHAIN_SERVICE="${PORTAINER_KEYCHAIN_SERVICE:-portainer-t3-mcp}"
+readonly KEYCHAIN_ACCOUNT="${PORTAINER_KEYCHAIN_ACCOUNT:-${USER:-opencode}}"
+
+for command in curl jq uvx; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    printf 'FAIL %-18s %s is not installed\n' "dependency" "$command"
+    exit 1
+  fi
+done
+printf 'OK   %-18s curl, jq, uvx\n' "dependencies"
+
+status="$(curl --fail --silent --show-error --max-time 10 \
+  "$PORTAINER_URL/api/status")"
+version="$(printf '%s' "$status" | jq -er '.Version')"
+printf 'OK   %-18s %s (%s)\n' "Portainer reachable" "$PORTAINER_URL" "$version"
+
+if [[ "$version" == 2.44.* ]]; then
+  printf 'OK   %-18s Portainer 2.44.x\n' "MCP compatibility"
+else
+  printf 'FAIL %-18s found %s, expected 2.44.x\n' "MCP compatibility" "$version"
+  exit 1
+fi
+
+api_key="${PORTAINER_API_KEY:-}"
+if [[ -z "$api_key" ]] && command -v security >/dev/null 2>&1; then
+  api_key="$(security find-generic-password \
+    -s "$KEYCHAIN_SERVICE" \
+    -a "$KEYCHAIN_ACCOUNT" \
+    -w 2>/dev/null || true)"
+fi
+if [[ -z "$api_key" ]]; then
+  printf 'FAIL %-18s run ./scripts/configure-portainer-key\n' "API key"
+  exit 1
+fi
+
+me="$(curl --fail-with-body --silent --show-error --max-time 20 \
+  -H "X-API-Key: $api_key" \
+  "$PORTAINER_URL/api/users/me")"
+username="$(printf '%s' "$me" | jq -er '.Username // .username')"
+printf 'OK   %-18s authenticated as %s\n' "API key" "$username"
+
+endpoint_count="$(curl --fail-with-body --silent --show-error --max-time 20 \
+  -H "X-API-Key: $api_key" \
+  "$PORTAINER_URL/api/endpoints" | jq 'length')"
+unset api_key
+if (( endpoint_count == 0 )); then
+  printf 'FAIL %-18s no visible environments\n' "Portainer RBAC"
+  exit 1
+fi
+printf 'OK   %-18s %s visible environment(s)\n' "Portainer RBAC" "$endpoint_count"

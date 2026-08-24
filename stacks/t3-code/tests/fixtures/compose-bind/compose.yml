@@ -1,0 +1,13 @@
+services:
+  bind-test:
+    build: .
+    working_dir: /workspace
+    command:
+      - sh
+      - -ec
+      - |
+        test "$$(cat /built.txt)" = "image build works"
+        test "$$(cat /workspace/source.txt)" = "shared bind mount works"
+        printf '%s\n' "compose integration passed" > /workspace/result.txt
+    volumes:
+      - .:/workspace

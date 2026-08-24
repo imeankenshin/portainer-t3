@@ -1,0 +1,41 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "portainer-read_*": "allow",
+    "portainer-write_*": "ask"
+  },
+  "mcp": {
+    "portainer-read": {
+      "type": "local",
+      "command": ["./scripts/portainer-mcp"],
+      "environment": {
+        "PORTAINER_URL": "http://umbrel:9000",
+        "PORTAINER_PROFILES": "BASE,DOCKER",
+        "PORTAINER_TAGS_EXTRA": "observability",
+        "PORTAINER_NO_PROXY": "1",
+        "PORTAINER_READ_ONLY": "1",
+        "PORTAINER_EXPOSE_ENV_VALUES": "0",
+        "PORTAINER_TIMEOUT": "120",
+        "PORTAINER_MCP_LOG_LEVEL": "WARNING"
+      },
+      "enabled": true,
+      "timeout": 180000
+    },
+    "portainer-write": {
+      "type": "local",
+      "command": ["./scripts/portainer-mcp"],
+      "environment": {
+        "PORTAINER_URL": "http://umbrel:9000",
+        "PORTAINER_PROFILES": "BASE,DOCKER",
+        "PORTAINER_TAGS_EXTRA": "observability",
+        "PORTAINER_NO_PROXY": "1",
+        "PORTAINER_READ_ONLY": "0",
+        "PORTAINER_EXPOSE_ENV_VALUES": "0",
+        "PORTAINER_TIMEOUT": "120",
+        "PORTAINER_MCP_LOG_LEVEL": "WARNING"
+      },
+      "enabled": true,
+      "timeout": 180000
+    }
+  }
+}

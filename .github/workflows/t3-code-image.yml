@@ -1,0 +1,197 @@
+name: T3 Code image
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/t3-code-image.yml
+      - stacks/t3-code/Dockerfile
+      - stacks/t3-code/entrypoint.sh
+      - stacks/t3-code/tests/**
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/t3-code-image.yml
+      - stacks/t3-code/Dockerfile
+      - stacks/t3-code/entrypoint.sh
+      - stacks/t3-code/tests/**
+  schedule:
+    - cron: "17 18 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: t3-code-image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TEST_IMAGE: t3-code:test
+  BUILDX_GIT_INFO: "false"
+
+jobs:
+  build-test:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      t3-version: ${{ steps.versions.outputs.t3 }}
+      opencode-version: ${{ steps.versions.outputs.opencode }}
+      source-revision: ${{ steps.versions.outputs.source-revision }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Resolve image name
+        id: image
+        shell: bash
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "image=ghcr.io/${owner}/t3-code" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve tool versions
+        id: versions
+        shell: bash
+        run: |
+          t3_version="$(npm view 't3@~0.0.31' version --json | jq -r 'if type == "array" then last else . end')"
+          opencode_version="$(npm view 'opencode-ai@~1.18.10' version --json | jq -r 'if type == "array" then last else . end')"
+          source_revision="$(git log -1 --format=%H -- stacks/t3-code/Dockerfile stacks/t3-code/entrypoint.sh)"
+          echo "t3=${t3_version}" >> "$GITHUB_OUTPUT"
+          echo "opencode=${opencode_version}" >> "$GITHUB_OUTPUT"
+          echo "source-revision=${source_revision}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Build test image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: stacks/t3-code
+          file: stacks/t3-code/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.TEST_IMAGE }}
+          build-args: |
+            T3_VERSION=${{ steps.versions.outputs.t3 }}
+            OPENCODE_VERSION=${{ steps.versions.outputs.opencode }}
+            VCS_REF=${{ steps.versions.outputs.source-revision }}
+            SOURCE_URL=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=t3-code-amd64
+
+      - name: Run DinD integration test
+        run: stacks/t3-code/tests/integration.sh "${TEST_IMAGE}"
+
+      - name: Scan development image for fixable critical vulnerabilities
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: ${{ env.TEST_IMAGE }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL
+
+      - name: Scan DinD image for fixable critical vulnerabilities
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: docker:29.7.2-dind@sha256:ab772b0eaf0b01e5843f6574e50ccdfc34a7bdcb82bbf2decafde54a0ee884a9
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL
+
+  publish:
+    if: github.event_name != 'pull_request'
+    needs: build-test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ needs.build-test.outputs.image }}
+      deployment-digest: ${{ steps.deployment-digest.outputs.digest }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish image with SBOM and provenance
+        id: publish
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: stacks/t3-code
+          file: stacks/t3-code/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ needs.build-test.outputs.image }}:latest
+            ${{ needs.build-test.outputs.image }}:build-${{ github.run_id }}
+          build-args: |
+            T3_VERSION=${{ needs.build-test.outputs.t3-version }}
+            OPENCODE_VERSION=${{ needs.build-test.outputs.opencode-version }}
+            VCS_REF=${{ needs.build-test.outputs.source-revision }}
+            SOURCE_URL=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=t3-code-amd64
+          cache-to: type=gha,scope=t3-code-amd64,mode=max
+          sbom: true
+          provenance: mode=max
+
+      - name: Resolve amd64 deployment digest
+        id: deployment-digest
+        shell: bash
+        env:
+          IMAGE: ${{ needs.build-test.outputs.image }}
+        run: |
+          manifest="$(docker buildx imagetools inspect "${IMAGE}:latest" --format '{{json .Manifest}}')"
+          digest="$(jq -r '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' <<< "$manifest")"
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Unable to resolve amd64 digest: $digest" >&2
+            exit 1
+          fi
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+  propose-digest:
+    if: github.event_name != 'pull_request'
+    needs:
+      - build-test
+      - publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Update deployment digest
+        run: >-
+          stacks/t3-code/scripts/update-image-reference.sh
+          "${{ needs.publish.outputs.image }}@${{ needs.publish.outputs.deployment-digest }}"
+
+      - name: Create digest update pull request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          branch: automation/t3-code-image
+          delete-branch: true
+          commit-message: "chore(t3-code): update image digest"
+          title: "chore(t3-code): update image digest"
+          body: |
+            Automated T3 Code development image update.
+
+            - T3 Code: `${{ needs.build-test.outputs.t3-version }}`
+            - OpenCode: `${{ needs.build-test.outputs.opencode-version }}`
+            - Image: `${{ needs.publish.outputs.image }}@${{ needs.publish.outputs.deployment-digest }}`
+
+            The image passed the DinD Compose integration test and the fixable Critical vulnerability gate.
+          add-paths: stacks/t3-code/compose.yml

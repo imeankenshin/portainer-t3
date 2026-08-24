@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly MCP_VERSION="2.44.0"
+readonly PORTAINER_URL="${PORTAINER_URL:-http://umbrel:9000}"
+readonly KEYCHAIN_SERVICE="${PORTAINER_KEYCHAIN_SERVICE:-portainer-t3-mcp}"
+readonly KEYCHAIN_ACCOUNT="${PORTAINER_KEYCHAIN_ACCOUNT:-${USER:-opencode}}"
+
+api_key="${PORTAINER_API_KEY:-}"
+if [[ -z "$api_key" ]] && command -v security >/dev/null 2>&1; then
+  api_key="$(security find-generic-password \
+    -s "$KEYCHAIN_SERVICE" \
+    -a "$KEYCHAIN_ACCOUNT" \
+    -w 2>/dev/null || true)"
+fi
+
+if [[ -z "$api_key" ]]; then
+  cat >&2 <<'EOF'
+Portainer API key is not configured.
+Run ./scripts/configure-portainer-key in a terminal, then restart OpenCode.
+EOF
+  exit 1
+fi
+
+status="$(curl --fail --silent --show-error --max-time 10 \
+  "$PORTAINER_URL/api/status")" || {
+  printf 'Cannot reach Portainer at %s.\n' "$PORTAINER_URL" >&2
+  exit 1
+}
+
+version="$(printf '%s' "$status" | jq -er '.Version')"
+if [[ "$version" != 2.44.* ]]; then
+  printf 'Portainer %s is incompatible with MCP %s; expected Portainer 2.44.x.\n' \
+    "$version" "$MCP_VERSION" >&2
+  printf 'Run ./scripts/upgrade-portainer --apply after reviewing its dry run.\n' >&2
+  exit 1
+fi
+
+export PORTAINER_URL PORTAINER_API_KEY="$api_key"
+exec uvx --from "mcp-portainer==$MCP_VERSION" mcp-portainer

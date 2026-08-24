@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly PORTAINER_URL="${PORTAINER_URL:-http://umbrel:9000}"
+readonly KEYCHAIN_SERVICE="${PORTAINER_KEYCHAIN_SERVICE:-portainer-t3-mcp}"
+readonly KEYCHAIN_ACCOUNT="${PORTAINER_KEYCHAIN_ACCOUNT:-${USER:-opencode}}"
+readonly TOKEN_DESCRIPTION="${PORTAINER_TOKEN_DESCRIPTION:-opencode-portainer-mcp}"
+
+for command in curl jq security; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    printf 'Required command not found: %s\n' "$command" >&2
+    exit 1
+  fi
+done
+
+existing_key="$(security find-generic-password \
+  -s "$KEYCHAIN_SERVICE" \
+  -a "$KEYCHAIN_ACCOUNT" \
+  -w 2>/dev/null || true)"
+if [[ -n "$existing_key" ]] && curl --fail --silent --show-error --max-time 20 \
+  -H "X-API-Key: $existing_key" \
+  "$PORTAINER_URL/api/users/me" >/dev/null 2>&1; then
+  unset existing_key
+  printf 'A valid Portainer access token is already stored in macOS Keychain.\n'
+  exit 0
+fi
+unset existing_key
+
+printf 'Portainer URL: %s\n' "$PORTAINER_URL"
+read -r -p 'Portainer username: ' username
+read -r -s -p 'Portainer password: ' password
+printf '\n'
+
+auth_response="$(
+  jq -n --arg username "$username" --arg password "$password" \
+    '{Username: $username, Password: $password}' |
+    curl --fail-with-body --silent --show-error --max-time 20 \
+      -H 'Content-Type: application/json' \
+      --data-binary @- \
+      "$PORTAINER_URL/api/auth"
+)"
+jwt="$(printf '%s' "$auth_response" | jq -er '.jwt')"
+
+me_response="$(curl --fail-with-body --silent --show-error --max-time 20 \
+  -H "Authorization: Bearer $jwt" \
+  "$PORTAINER_URL/api/users/me")"
+user_id="$(printf '%s' "$me_response" | jq -er '.Id // .id')"
+
+token_response="$(
+  jq -n --arg password "$password" --arg description "$TOKEN_DESCRIPTION" \
+    '{password: $password, description: $description}' |
+    curl --fail-with-body --silent --show-error --max-time 20 \
+      -H 'Content-Type: application/json' \
+      -H "Authorization: Bearer $jwt" \
+      --data-binary @- \
+      "$PORTAINER_URL/api/users/$user_id/tokens"
+)"
+unset password
+
+token_id="$(printf '%s' "$token_response" | jq -er '.apiKey.Id // .apiKey.id')"
+token_stored=0
+cleanup_new_token() {
+  if (( token_stored == 1 )); then return; fi
+  if ! curl --fail --silent --show-error --max-time 20 \
+    -X DELETE \
+    -H "Authorization: Bearer $jwt" \
+    "$PORTAINER_URL/api/users/$user_id/tokens/$token_id" >/dev/null; then
+    printf 'WARNING: failed to revoke the newly created token (ID %s).\n' "$token_id" >&2
+  fi
+}
+trap cleanup_new_token EXIT
+
+api_key="$(printf '%s' "$token_response" | jq -er '.rawAPIKey')"
+curl --fail-with-body --silent --show-error --max-time 20 \
+  -H "X-API-Key: $api_key" \
+  "$PORTAINER_URL/api/users/me" >/dev/null
+
+if ! security add-generic-password -U \
+  -s "$KEYCHAIN_SERVICE" \
+  -a "$KEYCHAIN_ACCOUNT" \
+  -w "$api_key" >/dev/null; then
+  printf 'Keychain storage failed.\n' >&2
+  exit 1
+fi
+token_stored=1
+trap - EXIT
+unset api_key jwt token_id
+
+printf 'Created a Portainer access token and stored it in macOS Keychain.\n'
+printf 'Keychain service: %s\n' "$KEYCHAIN_SERVICE"

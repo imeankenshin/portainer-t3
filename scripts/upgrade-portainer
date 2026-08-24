@@ -1,0 +1,242 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly SSH_TARGET="${PORTAINER_SSH_TARGET:-umbrel@umbrel}"
+readonly PORTAINER_URL="${PORTAINER_URL:-http://umbrel:9000}"
+readonly APP_DATA_DIR="/home/umbrel/umbrel/app-data/portainer"
+readonly REMOTE_COMPOSE="$APP_DATA_DIR/docker-compose.yml"
+readonly SOURCE_DATA="$APP_DATA_DIR/data/portainer"
+readonly TARGET_DATA="$APP_DATA_DIR/data/portainer-mcp-2.44"
+readonly COMPOSE_TEMPLATE="umbrel-portainer-compose.yml"
+readonly SOURCE_IMAGE="portainer/portainer-ce:2.39.6-alpine@sha256:f35a74e590973d9c77fa2c4930c64c1a05626eedf64462b3d2eebef5a7c710e3"
+readonly TARGET_IMAGE="portainer/portainer-ce:2.44.0-alpine@sha256:5376fd96f0bae14be7285ceb24c5cf9470dc23f19cdde74ff4c65d11cbe96eb2"
+readonly KEYCHAIN_SERVICE="${PORTAINER_KEYCHAIN_SERVICE:-portainer-t3-mcp}"
+readonly KEYCHAIN_ACCOUNT="${PORTAINER_KEYCHAIN_ACCOUNT:-${USER:-opencode}}"
+
+apply=0
+if [[ "${1:-}" == "--apply" ]]; then
+  apply=1
+elif [[ $# -gt 0 ]]; then
+  printf 'Usage: %s [--apply]\n' "$0" >&2
+  exit 2
+fi
+
+for command in curl jq scp security ssh shasum tar; do
+  command -v "$command" >/dev/null 2>&1 || {
+    printf 'Required command not found: %s\n' "$command" >&2
+    exit 1
+  }
+done
+[[ -f "$COMPOSE_TEMPLATE" ]] || {
+  printf 'Missing compose template: %s\n' "$COMPOSE_TEMPLATE" >&2
+  exit 1
+}
+
+api_key="$(security find-generic-password \
+  -s "$KEYCHAIN_SERVICE" -a "$KEYCHAIN_ACCOUNT" -w 2>/dev/null || true)"
+[[ -n "$api_key" ]] || {
+  printf 'Run ./scripts/configure-portainer-key before upgrading.\n' >&2
+  exit 1
+}
+
+curl --fail --silent --show-error --max-time 20 \
+  -H "X-API-Key: $api_key" "$PORTAINER_URL/api/users/me" >/dev/null
+before_endpoint_response="$(curl --fail --silent --show-error --max-time 20 \
+  -H "X-API-Key: $api_key" "$PORTAINER_URL/api/endpoints" |
+  jq -ce '.')"
+before_endpoints="$(printf '%s' "$before_endpoint_response" |
+  jq -ce '[.[] | {Id, Status}] | sort_by(.Id)')"
+[[ "$before_endpoints" != '[]' ]] || {
+  printf 'No Portainer environments are visible; refusing upgrade.\n' >&2
+  exit 1
+}
+docker_endpoint_ids="$(printf '%s' "$before_endpoint_response" |
+  jq -er '[.[] | select(.Type == 1) | .Id] | .[]')"
+[[ -n "$docker_endpoint_ids" ]] || {
+  printf 'No Docker endpoint is visible; refusing upgrade.\n' >&2
+  exit 1
+}
+for endpoint_id in $docker_endpoint_ids; do
+  curl --fail --silent --show-error --max-time 20 \
+    -H "X-API-Key: $api_key" \
+    "$PORTAINER_URL/api/endpoints/$endpoint_id/docker/_ping" >/dev/null
+done
+
+if ! ssh "$SSH_TARGET" "docker info >/dev/null 2>&1"; then
+  cat >&2 <<EOF
+The SSH user cannot access the Umbrel Docker socket.
+Run this once, then open a new SSH connection:
+  ssh -t $SSH_TARGET 'sudo usermod -aG docker umbrel'
+EOF
+  exit 1
+fi
+
+app_state="$(ssh "$SSH_TARGET" \
+  "umbreld client apps.state.query --appId portainer" | jq -er '.state')"
+current_image="$(ssh "$SSH_TARGET" \
+  "docker inspect --format '{{.Config.Image}}' portainer_portainer_1")"
+current_data="$(ssh "$SSH_TARGET" \
+  "docker inspect --format '{{range .Mounts}}{{if eq .Destination \"/data\"}}{{.Source}}{{end}}{{end}}' portainer_portainer_1")"
+current_command="$(ssh "$SSH_TARGET" \
+  "docker inspect --format '{{join .Config.Cmd \" \"}}' portainer_portainer_1")"
+current_compose_sha="$(ssh "$SSH_TARGET" \
+  "sha256sum '$REMOTE_COMPOSE'" | cut -d' ' -f1)"
+target_compose_sha="$(shasum -a 256 "$COMPOSE_TEMPLATE" | cut -d' ' -f1)"
+
+printf 'Umbrel app state: %s\n' "$app_state"
+printf 'Current image:    %s\n' "$current_image"
+printf 'Current data:     %s\n' "$current_data"
+printf 'Current command:  %s\n' "$current_command"
+printf 'Target image:     %s\n' "$TARGET_IMAGE"
+printf 'Current compose:  %s\n' "$current_compose_sha"
+printf 'Target compose:   %s\n' "$target_compose_sha"
+
+if [[ "$app_state" != ready ]]; then
+  printf 'Portainer Umbrel app is not ready; refusing upgrade.\n' >&2
+  exit 1
+fi
+
+if [[ "$current_image" == "$TARGET_IMAGE" && "$current_data" == "$TARGET_DATA" ]]; then
+  printf 'Portainer is already configured for 2.44.0.\n'
+  exit 0
+fi
+
+if [[ "$current_image" != "$SOURCE_IMAGE" || "$current_data" != "$SOURCE_DATA" ]]; then
+  printf 'Unexpected Portainer source image or data mount; refusing overwrite.\n' >&2
+  exit 1
+fi
+
+if [[ "$current_command" != '--host unix:///var/run/docker.sock --admin-password-file=/default-password' ]]; then
+  printf 'Unexpected Portainer command; refusing overwrite.\n' >&2
+  exit 1
+fi
+
+existing_target=0
+if ssh "$SSH_TARGET" "test -e '$TARGET_DATA'"; then
+  existing_target=1
+fi
+
+if (( apply == 0 )); then
+  cat <<'EOF'
+
+Dry run only. Apply mode will:
+1. Pull the digest-pinned Portainer 2.44.0 Alpine image.
+2. Stop the Portainer Umbrel app through umbreld.
+3. Back up the stopped 2.39.6 data and clone it to data/portainer-mcp-2.44.
+4. Install the reviewed Compose declaration and start the app through umbreld.
+5. Validate version, API authentication, and endpoint IDs/statuses.
+6. Restore the original Compose and untouched 2.39 data automatically on failure.
+
+An existing 2.44 migration directory is archived with a timestamp before cloning.
+
+Run ./scripts/upgrade-portainer --apply to continue.
+EOF
+  exit 0
+fi
+
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+backup_dir="backups/$timestamp"
+archived_target="$TARGET_DATA.previous-$timestamp"
+target_created=0
+mkdir -p "$backup_dir"
+chmod 700 "$backup_dir"
+scp -q "$SSH_TARGET:$REMOTE_COMPOSE" "$backup_dir/docker-compose.yml"
+chmod 600 "$backup_dir/docker-compose.yml"
+
+printf 'Pulling target and backup images...\n'
+ssh "$SSH_TARGET" \
+  "docker pull '$TARGET_IMAGE' >/dev/null && docker pull alpine:3.22 >/dev/null"
+
+rollback_required=0
+rollback() {
+  if (( rollback_required == 0 )); then return; fi
+  printf 'Restoring the original Umbrel Compose declaration...\n' >&2
+  ssh "$SSH_TARGET" \
+    "umbreld client apps.stop.mutate --appId portainer >/dev/null" || true
+  scp -q "$backup_dir/docker-compose.yml" "$SSH_TARGET:$REMOTE_COMPOSE"
+  if (( target_created == 1 )); then
+    ssh "$SSH_TARGET" \
+      "if test -e '$TARGET_DATA'; then mv '$TARGET_DATA' '$TARGET_DATA.failed-$timestamp'; fi" || true
+  fi
+  if (( existing_target == 1 )); then
+    ssh "$SSH_TARGET" \
+      "if test -e '$archived_target'; then mv '$archived_target' '$TARGET_DATA'; fi" || true
+  fi
+  ssh "$SSH_TARGET" \
+    "umbreld client apps.start.mutate --appId portainer >/dev/null" || true
+}
+trap rollback EXIT
+
+printf 'Stopping Portainer through umbreld...\n'
+rollback_required=1
+ssh "$SSH_TARGET" \
+  "umbreld client apps.stop.mutate --appId portainer >/dev/null"
+
+printf 'Backing up stopped Portainer data...\n'
+ssh "$SSH_TARGET" \
+  "docker run --rm --mount type=bind,src='$SOURCE_DATA',dst=/source,readonly alpine:3.22 tar -C /source -czf - ." \
+  >"$backup_dir/portainer-data-2.39.6.tar.gz"
+chmod 600 "$backup_dir/portainer-data-2.39.6.tar.gz"
+tar -tzf "$backup_dir/portainer-data-2.39.6.tar.gz" >/dev/null
+
+printf 'Cloning data into an isolated migration directory...\n'
+if (( existing_target == 1 )); then
+  ssh "$SSH_TARGET" "mv '$TARGET_DATA' '$archived_target'"
+fi
+ssh "$SSH_TARGET" "mkdir '$TARGET_DATA'"
+target_created=1
+ssh "$SSH_TARGET" \
+  "docker run --rm --mount type=bind,src='$SOURCE_DATA',dst=/source,readonly --mount type=bind,src='$TARGET_DATA',dst=/target alpine:3.22 sh -euc 'set -o pipefail; cd /source; tar -cf - . | tar -xf - -C /target'"
+
+printf 'Installing reviewed Umbrel Compose declaration...\n'
+scp -q "$COMPOSE_TEMPLATE" "$SSH_TARGET:$REMOTE_COMPOSE.mcp-new"
+uploaded_sha="$(ssh "$SSH_TARGET" \
+  "sha256sum '$REMOTE_COMPOSE.mcp-new'" | cut -d' ' -f1)"
+[[ "$uploaded_sha" == "$target_compose_sha" ]] || {
+  printf 'Uploaded Compose checksum mismatch.\n' >&2
+  exit 1
+}
+ssh "$SSH_TARGET" "mv '$REMOTE_COMPOSE.mcp-new' '$REMOTE_COMPOSE'"
+
+printf 'Starting Portainer 2.44.0 through umbreld...\n'
+ssh "$SSH_TARGET" \
+  "umbreld client apps.start.mutate --appId portainer >/dev/null"
+
+printf 'Waiting for API and validating migrated state...\n'
+detected_version=''
+for _ in {1..60}; do
+  detected_version="$(curl --silent --max-time 5 "$PORTAINER_URL/api/status" |
+    jq -er '.Version' 2>/dev/null || true)"
+  [[ "$detected_version" == 2.44.* ]] && break
+  sleep 2
+done
+[[ "$detected_version" == 2.44.* ]] || {
+  printf 'Portainer 2.44.x did not become ready.\n' >&2
+  exit 1
+}
+
+curl --fail --silent --show-error --max-time 20 \
+  -H "X-API-Key: $api_key" "$PORTAINER_URL/api/users/me" >/dev/null
+after_endpoints="$(curl --fail --silent --show-error --max-time 20 \
+  -H "X-API-Key: $api_key" "$PORTAINER_URL/api/endpoints" |
+  jq -ce '[.[] | {Id, Status}] | sort_by(.Id)')"
+[[ "$after_endpoints" == "$before_endpoints" ]] || {
+  printf 'Endpoint state changed: before=%s after=%s\n' \
+    "$before_endpoints" "$after_endpoints" >&2
+  exit 1
+}
+for endpoint_id in $docker_endpoint_ids; do
+  curl --fail --silent --show-error --max-time 20 \
+    -H "X-API-Key: $api_key" \
+    "$PORTAINER_URL/api/endpoints/$endpoint_id/docker/_ping" >/dev/null
+done
+
+rollback_required=0
+trap - EXIT
+unset api_key
+printf 'Portainer upgrade complete: %s\n' "$detected_version"
+printf 'Backup: %s\n' "$backup_dir"
+printf 'Untouched rollback data: %s\n' "$SOURCE_DATA"
+if (( existing_target == 1 )); then
+  printf 'Previous 2.44 data archived at: %s\n' "$archived_target"
+fi
