@@ -1,0 +1,40 @@
+name: 作業
+description: 保守、調査、文書化などの具体的な作業を登録します
+title: "[Task]: "
+labels:
+  - needs-triage
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: 目的
+      description: この作業で達成する成果を記載してください。
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: 対象範囲
+      description: 対象に含むものと、必要なら対象外も記載してください。
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 完了条件
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: input
+    id: related
+    attributes:
+      label: 関連Issue
+      description: 親Issue、依存先、関連する作業があればIssue番号を記載してください。
+      placeholder: "#123"
+  - type: textarea
+    id: context
+    attributes:
+      label: 補足
+      description: 実装上の制約、参考資料、判断事項などがあれば追加してください。

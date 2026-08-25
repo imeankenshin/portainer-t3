@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues are tracked as local Markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
+Issues and specs are tracked in GitHub Issues. Use the `gh` CLI and follow `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

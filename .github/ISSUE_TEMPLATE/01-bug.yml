@@ -1,0 +1,60 @@
+name: バグ報告
+description: 再現可能な不具合や予期しない動作を報告します
+title: "[Bug]: "
+labels:
+  - bug
+  - needs-triage
+body:
+  - type: checkboxes
+    id: existing-issue
+    attributes:
+      label: 既存Issueの確認
+      options:
+        - label: 同じ内容のIssueがないことを確認しました
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: 発生した問題
+      description: 実際に起きたことを具体的に記載してください。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 再現手順
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待する動作
+      description: 本来どのように動作すべきかを記載してください。
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 環境
+      value: |
+        - OS:
+        - Portainer:
+        - OpenCode:
+        - 対象environment:
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 関連ログ
+      description: 秘密情報を除去したログを貼り付けてください。
+      render: shell
+  - type: textarea
+    id: context
+    attributes:
+      label: 補足
+      description: スクリーンショット、設定、関連リンクなどがあれば追加してください。
