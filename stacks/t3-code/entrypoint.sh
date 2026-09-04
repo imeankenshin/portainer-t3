@@ -7,10 +7,14 @@ if [ "$(id -u)" -eq 0 ]; then
         /home/node/.config \
         /home/node/.config/docker \
         /home/node/.config/git \
+        /home/node/.npm \
         /home/node/.local/share/opencode \
         /home/node/.local/state \
         /home/node/.ssh
     install -d -m 0755 -o node -g node /workspace
+
+    find /home/node/.npm \( ! -user node -o ! -group node \) \
+        -exec chown -h node:node {} +
 
     if [ -n "${GIT_USER_NAME:-}" ] \
         && ! gosu node git config --global --get user.name >/dev/null 2>&1; then

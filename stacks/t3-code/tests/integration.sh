@@ -11,6 +11,7 @@ DIND_CONTAINER="${PREFIX}-dind"
 T3_CONTAINER="${PREFIX}-server"
 CA_VOLUME="${PREFIX}-ca"
 CLIENT_VOLUME="${PREFIX}-client"
+NPM_CACHE_VOLUME="${PREFIX}-npm-cache"
 WORKSPACE="$(mktemp -d)"
 
 cleanup() {
@@ -18,7 +19,7 @@ cleanup() {
     docker rm --force "$T3_CONTAINER" >/dev/null 2>&1 || true
     docker rm --force "$DIND_CONTAINER" >/dev/null 2>&1 || true
     docker network rm "$NETWORK" >/dev/null 2>&1 || true
-    docker volume rm "$CA_VOLUME" "$CLIENT_VOLUME" >/dev/null 2>&1 || true
+    docker volume rm "$CA_VOLUME" "$CLIENT_VOLUME" "$NPM_CACHE_VOLUME" >/dev/null 2>&1 || true
     docker run --rm \
         --entrypoint chown \
         --volume "$WORKSPACE:/workspace" \
@@ -35,6 +36,7 @@ cp -R "$SCRIPT_DIR/fixtures/compose-bind" "$WORKSPACE/project"
 docker network create "$NETWORK" >/dev/null
 docker volume create "$CA_VOLUME" >/dev/null
 docker volume create "$CLIENT_VOLUME" >/dev/null
+docker volume create "$NPM_CACHE_VOLUME" >/dev/null
 
 docker run --detach \
     --name "$DIND_CONTAINER" \
@@ -82,6 +84,7 @@ docker run --detach \
     --env DOCKER_TLS_VERIFY=1 \
     --env DOCKER_CERT_PATH=/certs/client \
     --volume "$CLIENT_VOLUME:/certs/client:ro" \
+    --volume "$NPM_CACHE_VOLUME:/home/node/.npm" \
     --volume "$WORKSPACE:/workspace" \
     "$IMAGE_REF" \
     >/dev/null
@@ -106,11 +109,18 @@ fi
 docker rm --force "$T3_CONTAINER" >/dev/null
 
 docker run --rm \
+    --entrypoint sh \
+    --volume "$NPM_CACHE_VOLUME:/home/node/.npm" \
+    "$IMAGE_REF" \
+    -ec 'mkdir -p /home/node/.npm/_cacache/tmp && touch /home/node/.npm/_cacache/tmp/root-owned'
+
+docker run --rm \
     --network "$NETWORK" \
     --env DOCKER_HOST=tcp://docker:2376 \
     --env DOCKER_TLS_VERIFY=1 \
     --env DOCKER_CERT_PATH=/certs/client \
     --volume "$CLIENT_VOLUME:/certs/client:ro" \
+    --volume "$NPM_CACHE_VOLUME:/home/node/.npm" \
     --volume "$WORKSPACE:/workspace" \
     "$IMAGE_REF" \
     sh -ec '
@@ -121,6 +131,8 @@ docker run --rm \
         docker version
         docker compose version
         docker buildx version
+        test "$(stat -c %u:%g /home/node/.npm/_cacache/tmp/root-owned)" = 1000:1000
+        npm cache verify
         cd /workspace/project
         docker compose up --build --abort-on-container-exit --exit-code-from bind-test
         docker compose down --volumes --remove-orphans

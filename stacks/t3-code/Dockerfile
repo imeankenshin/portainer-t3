@@ -92,6 +92,7 @@ RUN install -d -m 0700 -o node -g node \
         /home/node/.config \
         /home/node/.config/docker \
         /home/node/.config/git \
+        /home/node/.npm \
         /home/node/.local/share/opencode \
         /home/node/.local/state \
         /home/node/.ssh \

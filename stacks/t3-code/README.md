@@ -168,15 +168,16 @@ Each stack creates independent named volumes for:
 - T3 Code state
 - OpenCode state
 - user, Git, GitHub CLI, and Docker CLI configuration
+- npm download cache
 - SSH keys
 - workspace files
 - DinD data
 - DinD CA and client certificates
 
-Back up the first five categories. Treat DinD data as rebuildable image and
-build cache, and do not copy its raw `/var/lib/docker` while the daemon is
-running. Projects with durable development databases should define their own
-consistent dump and restore procedure.
+Back up the application state, user configuration, SSH keys, and workspace.
+Treat the npm cache and DinD data as rebuildable caches, and do not copy raw
+`/var/lib/docker` while the daemon is running. Projects with durable development
+databases should define their own consistent dump and restore procedure.
 
 ## Migration from the Web Editor stack
 
