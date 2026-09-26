@@ -127,6 +127,7 @@ docker run --rm \
         test "$(id -u)" = 1000
         t3 --version
         opencode --version
+        codex --version
         gh --version
         docker version
         docker compose version

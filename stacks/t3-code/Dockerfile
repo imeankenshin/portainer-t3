@@ -6,6 +6,7 @@ FROM node:24-bookworm-slim@sha256:65932751ed4073ed02f5c04e494e4b2572a891b7dbea05
 
 ARG T3_VERSION="~0.0.31"
 ARG OPENCODE_VERSION="~1.18.10"
+ARG CODEX_VERSION="~0.157.0"
 ARG NPM_VERSION="11.19.0"
 ARG GH_VERSION="2.98.0"
 ARG GH_AMD64_SHA256="3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de"
@@ -13,11 +14,12 @@ ARG VCS_REF="unknown"
 ARG SOURCE_URL="unknown"
 
 LABEL org.opencontainers.image.title="t3-code remote development image" \
-      org.opencontainers.image.description="Non-root T3 Code and OpenCode environment with Docker Compose support" \
+      org.opencontainers.image.description="Non-root T3 Code, OpenCode, and Codex environment with Docker Compose support" \
       org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       io.portainer-t3.t3.version="${T3_VERSION}" \
       io.portainer-t3.opencode.version="${OPENCODE_VERSION}" \
+      io.portainer-t3.codex.version="${CODEX_VERSION}" \
       io.portainer-t3.docker.version="29.7.2" \
       io.portainer-t3.npm.version="${NPM_VERSION}" \
       io.portainer-t3.gh.version="${GH_VERSION}"
@@ -70,9 +72,10 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
         --allow-scripts=opencode-ai,node-pty,msgpackr-extract \
         "t3@${T3_VERSION}" \
         "opencode-ai@${OPENCODE_VERSION}" \
+        "@openai/codex@${CODEX_VERSION}" \
     && install -d /usr/local/share/t3-code \
-    && printf 't3=%s\nopencode=%s\n' \
-        "$(t3 --version)" "$(opencode --version)" \
+    && printf 't3=%s\nopencode=%s\ncodex=%s\n' \
+        "$(t3 --version)" "$(opencode --version)" "$(codex --version)" \
         > /usr/local/share/t3-code/versions
 
 ENV HOME=/home/node \
@@ -93,6 +96,7 @@ RUN install -d -m 0700 -o node -g node \
         /home/node/.config/docker \
         /home/node/.config/git \
         /home/node/.npm \
+        /home/node/.codex \
         /home/node/.local/share/opencode \
         /home/node/.local/state \
         /home/node/.ssh \

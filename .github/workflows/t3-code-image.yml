@@ -36,6 +36,7 @@ jobs:
       image: ${{ steps.image.outputs.image }}
       t3-version: ${{ steps.versions.outputs.t3 }}
       opencode-version: ${{ steps.versions.outputs.opencode }}
+      codex-version: ${{ steps.versions.outputs.codex }}
       source-revision: ${{ steps.versions.outputs.source-revision }}
     steps:
       - name: Check out repository
@@ -56,9 +57,11 @@ jobs:
         run: |
           t3_version="$(npm view 't3@~0.0.31' version --json | jq -r 'if type == "array" then last else . end')"
           opencode_version="$(npm view 'opencode-ai@~1.18.10' version --json | jq -r 'if type == "array" then last else . end')"
+          codex_version="$(npm view '@openai/codex@~0.157.0' version --json | jq -r 'if type == "array" then last else . end')"
           source_revision="$(git log -1 --format=%H -- stacks/t3-code/Dockerfile stacks/t3-code/entrypoint.sh)"
           echo "t3=${t3_version}" >> "$GITHUB_OUTPUT"
           echo "opencode=${opencode_version}" >> "$GITHUB_OUTPUT"
+          echo "codex=${codex_version}" >> "$GITHUB_OUTPUT"
           echo "source-revision=${source_revision}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
@@ -75,6 +78,7 @@ jobs:
           build-args: |
             T3_VERSION=${{ steps.versions.outputs.t3 }}
             OPENCODE_VERSION=${{ steps.versions.outputs.opencode }}
+            CODEX_VERSION=${{ steps.versions.outputs.codex }}
             VCS_REF=${{ steps.versions.outputs.source-revision }}
             SOURCE_URL=https://github.com/${{ github.repository }}
           cache-from: type=gha,scope=t3-code-amd64
@@ -140,6 +144,7 @@ jobs:
           build-args: |
             T3_VERSION=${{ needs.build-test.outputs.t3-version }}
             OPENCODE_VERSION=${{ needs.build-test.outputs.opencode-version }}
+            CODEX_VERSION=${{ needs.build-test.outputs.codex-version }}
             VCS_REF=${{ needs.build-test.outputs.source-revision }}
             SOURCE_URL=https://github.com/${{ github.repository }}
           cache-from: type=gha,scope=t3-code-amd64
@@ -191,6 +196,7 @@ jobs:
 
             - T3 Code: `${{ needs.build-test.outputs.t3-version }}`
             - OpenCode: `${{ needs.build-test.outputs.opencode-version }}`
+            - Codex: `${{ needs.build-test.outputs.codex-version }}`
             - Image: `${{ needs.publish.outputs.image }}@${{ needs.publish.outputs.deployment-digest }}`
 
             The image passed the DinD Compose integration test and the fixable Critical vulnerability gate.

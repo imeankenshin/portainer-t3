@@ -73,6 +73,7 @@ services:
     volumes:
       - t3_data:/var/lib/t3
       - opencode_data:/home/node/.local/share/opencode
+      - codex_data:/home/node/.codex
       - user_config:/home/node/.config
       - npm_cache:/home/node/.npm
       - ssh_data:/home/node/.ssh
@@ -116,6 +117,7 @@ volumes:
   docker_client:
   t3_data:
   opencode_data:
+  codex_data:
   user_config:
   npm_cache:
   ssh_data:
