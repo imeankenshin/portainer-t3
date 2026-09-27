@@ -8,6 +8,7 @@ if [ "$(id -u)" -eq 0 ]; then
         /home/node/.config/docker \
         /home/node/.config/git \
         /home/node/.npm \
+        /home/node/.codex \
         /home/node/.local/share/opencode \
         /home/node/.local/state \
         /home/node/.ssh

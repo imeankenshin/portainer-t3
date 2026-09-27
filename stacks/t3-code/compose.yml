@@ -1,6 +1,6 @@
 services:
   docker:
-    image: docker:29.7.2-dind@sha256:ab772b0eaf0b01e5843f6574e50ccdfc34a7bdcb82bbf2decafde54a0ee884a9
+    image: docker:29.8.1-dind@sha256:754ce04dd9dee9ef015680b8529fc49608efb75f30322a54780e7aab32698a47
     privileged: true
     restart: unless-stopped
     stop_grace_period: 1m
@@ -73,6 +73,7 @@ services:
     volumes:
       - t3_data:/var/lib/t3
       - opencode_data:/home/node/.local/share/opencode
+      - codex_data:/home/node/.codex
       - user_config:/home/node/.config
       - npm_cache:/home/node/.npm
       - ssh_data:/home/node/.ssh
@@ -116,6 +117,7 @@ volumes:
   docker_client:
   t3_data:
   opencode_data:
+  codex_data:
   user_config:
   npm_cache:
   ssh_data:

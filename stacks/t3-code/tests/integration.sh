@@ -3,7 +3,7 @@ set -euo pipefail
 
 IMAGE_REF="${1:?usage: integration.sh IMAGE_REF}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-DIND_IMAGE="docker:29.7.2-dind@sha256:ab772b0eaf0b01e5843f6574e50ccdfc34a7bdcb82bbf2decafde54a0ee884a9"
+DIND_IMAGE="docker:29.8.1-dind@sha256:754ce04dd9dee9ef015680b8529fc49608efb75f30322a54780e7aab32698a47"
 RUN_ID="${GITHUB_RUN_ID:-$$}"
 PREFIX="t3-code-test-${RUN_ID}"
 NETWORK="${PREFIX}-network"
@@ -127,6 +127,7 @@ docker run --rm \
         test "$(id -u)" = 1000
         t3 --version
         opencode --version
+        codex --version
         gh --version
         docker version
         docker compose version

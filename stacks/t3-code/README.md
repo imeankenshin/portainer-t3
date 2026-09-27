@@ -17,7 +17,7 @@ SSH tunnel -> host loopback -> t3-code
 
 ## Files
 
-- `Dockerfile`: non-root Node 24 image with T3 Code, OpenCode, Docker CLI,
+- `Dockerfile`: non-root Node 24 image with T3 Code, OpenCode, Codex CLI, Docker CLI,
   Compose, Buildx, GitHub CLI, and development tools.
 - `compose.yml`: parameterized two-service stack deployed once per account.
 - `work.env.example` and `personal.env.example`: non-secret Portainer stack
@@ -26,7 +26,7 @@ SSH tunnel -> host loopback -> t3-code
 - `.github/workflows/t3-code-image.yml`: daily amd64 build, test, scan,
   publish, SBOM/provenance, and deployment digest pull request.
 
-Docker CLI and DinD are fixed to `29.7.2`; npm is fixed within its bundled
+Docker CLI and DinD are fixed to `29.8.1`; npm is fixed within its bundled
 major line at `11.19.0`. These versions include fixes required by the Critical
 vulnerability gate and are updated only through reviewed dependency changes.
 
@@ -47,9 +47,10 @@ Before the first deployment:
 5. Merge the generated image digest pull request.
 
 The workflow also runs daily at 03:17 JST. T3 Code resolves within `0.0.x`
-from a `0.0.31` floor, and OpenCode resolves within `1.18.x` from a `1.18.10`
-floor. A new image does not affect either running stack until its digest pull
-request is merged and that stack is manually redeployed.
+from a `0.0.31` floor, OpenCode resolves within `1.18.x` from a `1.18.10`
+floor, and Codex resolves within `0.157.x` from a `0.157.0` floor. A new image
+does not affect either running stack until its digest pull request is merged
+and that stack is manually redeployed.
 
 ## Portainer deployment
 
@@ -113,6 +114,11 @@ are pinned system-wide in the image. Use `gh auth login` separately in each
 stack when GitHub API access is needed. OpenCode/provider logins are also done
 separately and remain in the stack-specific config and data volumes.
 
+Codex CLI is available as `codex` in the same container. For a remote shell,
+sign in with `codex login --device-auth`, then check with `codex login status`.
+Run this separately in each stack. Codex settings and authentication are stored
+in that stack's `codex_data` volume; do not copy this volume between accounts.
+
 ## Connecting
 
 T3 Code is only published on the Umbrel host loopback interface. Example SSH
@@ -167,6 +173,7 @@ Each stack creates independent named volumes for:
 
 - T3 Code state
 - OpenCode state
+- Codex settings and authentication
 - user, Git, GitHub CLI, and Docker CLI configuration
 - npm download cache
 - SSH keys
@@ -189,7 +196,7 @@ For the safest migration:
 
 1. Back up the old `t3-code-data`, `t3-code-opencode-data`,
    `t3-code-user-config`, and `t3-code-workspace` volumes.
-2. Deploy the personal stack on `3774` and verify T3, GitHub SSH, OpenCode,
+2. Deploy the personal stack on `3774` and verify T3, GitHub SSH, OpenCode, Codex,
    Docker TLS, Compose build/up/down, bind mounts, DNS, and one preview tunnel.
 3. Stop the old stack without deleting its volumes.
 4. Deploy the work stack on `3773` and repeat the acceptance checks.
