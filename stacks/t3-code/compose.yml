@@ -48,7 +48,7 @@ services:
         max-file: "3"
 
   t3-code:
-    image: "${T3_CODE_IMAGE:-ghcr.io/imeankenshin/t3-code@sha256:063fde34f01ae46538267fae3e2054572c7b7802c4b5e7c1742c3d6a4f791d91}"
+    image: "${T3_CODE_IMAGE:-ghcr.io/imeankenshin/t3-code@sha256:0b14c04937c0e88a1fb01ae50abef9efeb62a238502a16e536357a39545986ef}"
     restart: unless-stopped
     stop_grace_period: 45s
     depends_on:
