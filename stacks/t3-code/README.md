@@ -26,7 +26,7 @@ SSH tunnel -> host loopback -> t3-code
 - `.github/workflows/t3-code-image.yml`: daily amd64 build, test, scan,
   publish, SBOM/provenance, and deployment digest pull request.
 
-Docker CLI and DinD are fixed to `29.7.2`; npm is fixed within its bundled
+Docker CLI and DinD are fixed to `29.8.1`; npm is fixed within its bundled
 major line at `11.19.0`. These versions include fixes required by the Critical
 vulnerability gate and are updated only through reviewed dependency changes.
 

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.12
 
-FROM docker:29.7.2-cli@sha256:e650b7a58d7f56be91d4f7be799196380a3bbc1bcbc41f1f4dff1b36ac309e1e AS docker-cli
+FROM docker:29.8.1-cli@sha256:6602978e2be3c20e530e33773b8cadcef5fe998a71a534ee24516f1176973cdf AS docker-cli
 
 FROM node:24-bookworm-slim@sha256:65932751ed4073ed02f5c04e494e4b2572a891b7dbea0568a863dc80341bf848
 
@@ -20,7 +20,7 @@ LABEL org.opencontainers.image.title="t3-code remote development image" \
       io.portainer-t3.t3.version="${T3_VERSION}" \
       io.portainer-t3.opencode.version="${OPENCODE_VERSION}" \
       io.portainer-t3.codex.version="${CODEX_VERSION}" \
-      io.portainer-t3.docker.version="29.7.2" \
+      io.portainer-t3.docker.version="29.8.1" \
       io.portainer-t3.npm.version="${NPM_VERSION}" \
       io.portainer-t3.gh.version="${GH_VERSION}"
 
