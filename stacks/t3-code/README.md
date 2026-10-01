@@ -155,6 +155,9 @@ so the explicit Compose hostname supplies the label. The relay stores the
 label from the environment descriptor when the environment link is registered.
 After changing the hostname, redeploy and verify that T3 Connect has registered
 the new label; a client may need to refresh its environment list.
+Recovering an existing managed tunnel alone does not update the relay's saved
+label in 0.0.44. Existing installations need a fresh link registration using
+the same environment ID, in addition to the hostname change.
 
 The persisted `userdata/environment-id` identifies the environment independently
 of its label. Keep the existing T3 state volume when renaming; do not unlink or
