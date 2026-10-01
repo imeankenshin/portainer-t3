@@ -48,6 +48,7 @@ services:
         max-file: "3"
 
   t3-code:
+    hostname: "${T3_ENVIRONMENT_NAME:?Set T3_ENVIRONMENT_NAME, for example business or personal}"
     image: "${T3_CODE_IMAGE:-ghcr.io/imeankenshin/t3-code@sha256:54ce7d6b295aaeb964974bfd06396da37200e10f2326a347bddc2f68eb0a58d7}"
     restart: unless-stopped
     stop_grace_period: 45s
