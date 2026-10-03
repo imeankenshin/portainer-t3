@@ -70,6 +70,7 @@ will time out.
 
 | Variable | Work | Personal |
 | --- | --- | --- |
+| `T3_ENVIRONMENT_NAME` | `business` | `personal` |
 | `T3_HOST_PORT` | `3773` | `3774` |
 | `PREVIEW_HOST_START` | `31000` | `32000` |
 | `PREVIEW_HOST_END` | `31049` | `32049` |
@@ -140,6 +141,29 @@ ssh -N \
 
 Use T3 Code's normal pairing flow after opening the tunnel. No static T3 auth
 token is stored in Compose.
+
+### T3 Connect environment names
+
+Set `T3_ENVIRONMENT_NAME` in each Portainer stack before deployment. Compose
+uses it as the development container's hostname, so Docker recreation does
+not change the name to a new container ID.
+
+T3 Code 0.0.44 resolves a Linux environment label from `/etc/machine-info`
+(`PRETTY_HOSTNAME`), then `hostnamectl --pretty`, then the system hostname,
+then the workspace directory name. This image has no pretty-hostname override,
+so the explicit Compose hostname supplies the label. The relay stores the
+label from the environment descriptor when the environment link is registered.
+After changing the hostname, redeploy and verify that T3 Connect has registered
+the new label; a client may need to refresh its environment list.
+Recovering an existing managed tunnel alone does not update the relay's saved
+label in 0.0.44. Existing installations need a fresh link registration using
+the same environment ID, in addition to the hostname change.
+
+The persisted `userdata/environment-id` identifies the environment independently
+of its label. Keep the existing T3 state volume when renaming; do not unlink or
+create a new environment. References:
+[label resolution](https://github.com/pingdotgg/t3code/blob/v0.0.44/apps/server/src/environment/ServerEnvironmentLabel.ts),
+[relay registration](https://github.com/pingdotgg/t3code/blob/v0.0.44/infra/relay/src/environments/EnvironmentLinks.ts).
 
 ## Project Compose convention
 
