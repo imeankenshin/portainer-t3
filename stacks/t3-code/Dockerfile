@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.12
 
-FROM docker:29.8.1-cli@sha256:6602978e2be3c20e530e33773b8cadcef5fe998a71a534ee24516f1176973cdf AS docker-cli
+FROM docker:29.9.3-cli@sha256:b0d99f37f463c88cae2082083f705210296186c06632d22f6952ed43506ae520 AS docker-cli
 
 FROM node:24-bookworm-slim@sha256:65932751ed4073ed02f5c04e494e4b2572a891b7dbea0568a863dc80341bf848
 
@@ -20,14 +20,17 @@ LABEL org.opencontainers.image.title="t3-code remote development image" \
       io.portainer-t3.t3.version="${T3_VERSION}" \
       io.portainer-t3.opencode.version="${OPENCODE_VERSION}" \
       io.portainer-t3.codex.version="${CODEX_VERSION}" \
-      io.portainer-t3.docker.version="29.8.1" \
+      io.portainer-t3.docker.version="29.9.3" \
       io.portainer-t3.npm.version="${NPM_VERSION}" \
       io.portainer-t3.gh.version="${GH_VERSION}"
 
+# CI changes this per run so cached layers cannot retain outdated OS packages.
+ARG OS_PACKAGES_REFRESH="manual"
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean \
     && apt-get update -o Acquire::Retries=5 \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         bash \
         build-essential \
