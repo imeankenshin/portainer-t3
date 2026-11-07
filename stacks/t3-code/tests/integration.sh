@@ -4,7 +4,7 @@ set -euo pipefail
 IMAGE_REF="${1:?usage: integration.sh IMAGE_REF}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 bash "$SCRIPT_DIR/home-permissions.sh" "$IMAGE_REF"
-DIND_IMAGE="docker:29.8.1-dind@sha256:754ce04dd9dee9ef015680b8529fc49608efb75f30322a54780e7aab32698a47"
+DIND_IMAGE="docker:29.9.3-dind@sha256:fafc2949724b06fd4e4bc53c446a09149b750693f0abe7f444e9eec1e138fe65"
 RUN_ID="${GITHUB_RUN_ID:-$$}"
 PREFIX="t3-code-test-${RUN_ID}"
 NETWORK="${PREFIX}-network"

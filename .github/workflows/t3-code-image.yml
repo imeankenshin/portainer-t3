@@ -76,6 +76,7 @@ jobs:
           load: true
           tags: ${{ env.TEST_IMAGE }}
           build-args: |
+            OS_PACKAGES_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
             T3_VERSION=${{ steps.versions.outputs.t3 }}
             OPENCODE_VERSION=${{ steps.versions.outputs.opencode }}
             CODEX_VERSION=${{ steps.versions.outputs.codex }}
@@ -99,7 +100,7 @@ jobs:
       - name: Scan DinD image for fixable critical vulnerabilities
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
-          image-ref: docker:29.8.1-dind@sha256:754ce04dd9dee9ef015680b8529fc49608efb75f30322a54780e7aab32698a47
+          image-ref: docker:29.9.3-dind@sha256:fafc2949724b06fd4e4bc53c446a09149b750693f0abe7f444e9eec1e138fe65
           format: table
           exit-code: "1"
           ignore-unfixed: true
@@ -142,6 +143,7 @@ jobs:
             ${{ needs.build-test.outputs.image }}:latest
             ${{ needs.build-test.outputs.image }}:build-${{ github.run_id }}
           build-args: |
+            OS_PACKAGES_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
             T3_VERSION=${{ needs.build-test.outputs.t3-version }}
             OPENCODE_VERSION=${{ needs.build-test.outputs.opencode-version }}
             CODEX_VERSION=${{ needs.build-test.outputs.codex-version }}
