@@ -2,6 +2,7 @@
 set -eu
 
 if [ "$(id -u)" -eq 0 ]; then
+    install -d -m 0755 -o node -g node /home/node
     install -d -m 0700 -o node -g node \
         /var/lib/t3 \
         /home/node/.config \
@@ -9,12 +10,16 @@ if [ "$(id -u)" -eq 0 ]; then
         /home/node/.config/git \
         /home/node/.npm \
         /home/node/.codex \
+        /home/node/.local \
+        /home/node/.local/share \
         /home/node/.local/share/opencode \
         /home/node/.local/state \
         /home/node/.ssh
     install -d -m 0755 -o node -g node /workspace
 
-    find /home/node/.npm \( ! -user node -o ! -group node \) \
+    # Repair existing home files and mounted state before dropping privileges.
+    # Do not follow symlinks to files outside the home directory.
+    find /home/node \( ! -user node -o ! -group node \) \
         -exec chown -h node:node {} +
 
     if [ -n "${GIT_USER_NAME:-}" ] \

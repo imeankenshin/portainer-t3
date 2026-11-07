@@ -191,6 +191,17 @@ possible. The development image intentionally has no sudo and runs with
 `no-new-privileges`. If a project creates root-owned files, use a one-time root
 console from Portainer to repair ownership rather than weakening the image.
 
+The `node` user owns `/home/node` and its contents, including mounted home
+configuration and cache volumes. At startup, the entrypoint repairs ownership
+of existing home files before starting T3 Code as `node`. Symlink targets
+outside the home directory are not changed. This allows user tools to create,
+update, and remove files throughout the home directory.
+
+To apply this repair to an existing stack, publish the updated image, merge its
+image digest update, and manually redeploy the stack in Portainer. Only the
+home subdirectories listed as volumes in `compose.yml` survive recreation;
+other home files remain in the container writable layer.
+
 ## Persistence and backup
 
 Each stack creates independent named volumes for:
