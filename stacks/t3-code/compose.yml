@@ -49,7 +49,7 @@ services:
 
   t3-code:
     hostname: "${T3_ENVIRONMENT_NAME:?Set T3_ENVIRONMENT_NAME, for example business or personal}"
-    image: "${T3_CODE_IMAGE:-ghcr.io/imeankenshin/t3-code@sha256:3e6335188f1e267837fc9f5e9429730d8d19909f0d788530cfe1665c555a526d}"
+    image: "${T3_CODE_IMAGE:-ghcr.io/imeankenshin/t3-code@sha256:188a5ec3cbd6d258ca5fd020fe643ef39ce05b48c14b40663dae1411462e3953}"
     restart: unless-stopped
     stop_grace_period: 45s
     depends_on:
