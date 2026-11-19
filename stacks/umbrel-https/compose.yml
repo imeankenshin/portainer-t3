@@ -1,0 +1,20 @@
+name: umbrel-https
+
+services:
+  router:
+    image: haproxy:3.2-alpine@sha256:5893840576071e6217cd52ebdcc14f454c6f7a631056fa6f4e0f40d3cac4215b
+    container_name: umbrel-https-router
+    network_mode: host
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "2"
