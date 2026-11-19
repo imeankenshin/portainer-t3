@@ -27,6 +27,14 @@ SSH tunnel -> host loopback -> t3-code
 - `.github/workflows/t3-code-image.yml`: daily amd64 build, test, scan,
   publish, SBOM/provenance, and deployment digest pull request.
 
+T3 Code follows the npm `latest` dist-tag; each workflow run resolves it to an
+exact version. Since 0.1.0 the `t3` npm package is a launcher that downloads
+the platform runtime from GitHub Releases on first run. The image downloads it
+at build time into `/opt/t3-code`, and the entrypoint links it into
+`/var/lib/t3/runtime/versions` so a container starts without that download.
+Links to runtimes from earlier images are removed; runtime directories that
+T3 Code downloaded itself are kept.
+
 Docker CLI and DinD are fixed to `29.9.3`; npm is fixed within its bundled
 major line at `11.19.0`. These versions include fixes required by the Critical
 vulnerability gate and are updated only through reviewed dependency changes.

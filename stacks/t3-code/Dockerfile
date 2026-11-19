@@ -6,7 +6,7 @@ FROM node:24-bookworm-slim@sha256:65932751ed4073ed02f5c04e494e4b2572a891b7dbea05
 
 FROM ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8
 
-ARG T3_VERSION="~0.0.31"
+ARG T3_VERSION="latest"
 ARG OPENCODE_VERSION="~1.18.10"
 ARG CODEX_VERSION="~0.157.0"
 ARG NPM_VERSION="11.19.0"
@@ -90,6 +90,11 @@ RUN curl --fail --location --show-error --silent \
 
 RUN corepack enable
 
+# Since 0.1.0 the t3 npm package is a launcher that downloads the platform
+# runtime from GitHub Releases into $T3CODE_HOME/runtime/versions/<version> on
+# first run. Download it at build time into /opt/t3-code; the entrypoint links
+# it into the persistent T3 home so containers start without a download.
+
 RUN --mount=type=cache,target=/root/.npm,sharing=locked \
     npm install --global "npm@${NPM_VERSION}" \
     && npm install --global --omit=dev \
@@ -99,8 +104,11 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
         "@openai/codex@${CODEX_VERSION}" \
     && install -d /usr/local/share/t3-code \
     && printf 't3=%s\nopencode=%s\ncodex=%s\n' \
-        "$(t3 --version)" "$(opencode --version)" "$(codex --version)" \
-        > /usr/local/share/t3-code/versions
+        "$(T3CODE_HOME=/opt/t3-code t3 --version)" "$(opencode --version)" "$(codex --version)" \
+        > /usr/local/share/t3-code/versions \
+    && find /opt/t3-code -mindepth 1 -maxdepth 1 ! -name runtime -exec rm -rf {} + \
+    && chmod -R a+rX,go-w /opt/t3-code \
+    && test -f "/opt/t3-code/runtime/versions/$(npm ls --global --json t3 | jq -r '.dependencies.t3.version')/.install-complete"
 
 ENV HOME=/home/user \
     XDG_CONFIG_HOME=/home/user/.config \
