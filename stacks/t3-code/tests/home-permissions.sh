@@ -4,22 +4,21 @@ set -euo pipefail
 IMAGE_REF="${1:?usage: home-permissions.sh IMAGE_REF}"
 
 docker run --rm \
-    --security-opt no-new-privileges:true \
-    --volume /home/node/.codex \
-    --volume /home/node/.ssh \
+    --volume /home/user/.codex \
+    --volume /home/user/.ssh \
     --entrypoint sh \
     "$IMAGE_REF" \
     -ec '
         # Reproduce existing root-owned home directories and files.
-        mkdir -p /home/node/.local/share /home/node/.codex /home/node/.ssh
-        printf "existing data\n" > /home/node/legacy-file
-        touch /home/node/.codex/legacy-file /home/node/.ssh/legacy-file
-        chown root:root /home/node /home/node/.local /home/node/.local/share \
-            /home/node/legacy-file /home/node/.codex/legacy-file /home/node/.ssh/legacy-file
-        chmod 0700 /home/node/.local /home/node/.local/share
-        chmod 0600 /home/node/legacy-file /home/node/.codex/legacy-file /home/node/.ssh/legacy-file
+        mkdir -p /home/user/.local/share /home/user/.codex /home/user/.ssh
+        printf "existing data\n" > /home/user/legacy-file
+        touch /home/user/.codex/legacy-file /home/user/.ssh/legacy-file
+        chown root:root /home/user /home/user/.local /home/user/.local/share \
+            /home/user/legacy-file /home/user/.codex/legacy-file /home/user/.ssh/legacy-file
+        chmod 0700 /home/user/.local /home/user/.local/share
+        chmod 0600 /home/user/legacy-file /home/user/.codex/legacy-file /home/user/.ssh/legacy-file
         touch /tmp/outside-home
-        ln -s /tmp/outside-home /home/node/outside-link
+        ln -s /tmp/outside-home /home/user/outside-link
 
         exec /usr/local/bin/t3-code-entrypoint sh -ec '\''
             test "$(id -u)" = 1000

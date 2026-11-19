@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - .github/workflows/t3-code-image.yml
+      - stacks/t3-code/compose.yml
       - stacks/t3-code/Dockerfile
       - stacks/t3-code/entrypoint.sh
       - stacks/t3-code/tests/**

@@ -73,17 +73,15 @@ services:
       - "127.0.0.1:${T3_HOST_PORT:?Set T3_HOST_PORT}:3773"
     volumes:
       - t3_data:/var/lib/t3
-      - opencode_data:/home/node/.local/share/opencode
-      - codex_data:/home/node/.codex
-      - user_config:/home/node/.config
-      - npm_cache:/home/node/.npm
-      - ssh_data:/home/node/.ssh
+      - opencode_data:/home/user/.local/share/opencode
+      - codex_data:/home/user/.codex
+      - user_config:/home/user/.config
+      - npm_cache:/home/user/.npm
+      - ssh_data:/home/user/.ssh
       - workspace:/workspace
       - docker_client:/certs/client:ro
     tmpfs:
       - /tmp:size=512m,mode=1777
-    security_opt:
-      - no-new-privileges:true
     mem_limit: "${DEV_MEMORY_LIMIT:-2g}"
     cpus: "${DEV_CPU_LIMIT:-2.0}"
     pids_limit: 1024

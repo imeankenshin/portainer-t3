@@ -2,7 +2,9 @@
 
 FROM docker:29.9.3-cli@sha256:b0d99f37f463c88cae2082083f705210296186c06632d22f6952ed43506ae520 AS docker-cli
 
-FROM node:24-bookworm-slim@sha256:65932751ed4073ed02f5c04e494e4b2572a891b7dbea0568a863dc80341bf848
+FROM node:24-bookworm-slim@sha256:65932751ed4073ed02f5c04e494e4b2572a891b7dbea0568a863dc80341bf848 AS node
+
+FROM ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8
 
 ARG T3_VERSION="~0.0.31"
 ARG OPENCODE_VERSION="~1.18.10"
@@ -14,7 +16,7 @@ ARG VCS_REF="unknown"
 ARG SOURCE_URL="unknown"
 
 LABEL org.opencontainers.image.title="t3-code remote development image" \
-      org.opencontainers.image.description="Non-root T3 Code, OpenCode, and Codex environment with Docker Compose support" \
+      org.opencontainers.image.description="Ubuntu 24.04 LTS T3 Code, OpenCode, and Codex environment with passwordless sudo and Docker Compose support" \
       org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       io.portainer-t3.t3.version="${T3_VERSION}" \
@@ -47,8 +49,27 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         procps \
         python3 \
         ripgrep \
+        sudo \
         tini \
         tzdata
+
+# Replace the base image's default UID 1000 account with the development user.
+RUN userdel --remove ubuntu \
+    && useradd --uid 1000 --user-group --create-home --shell /bin/bash user \
+    && ln -s /home/user /home/node \
+    && printf '%s\n' 'user ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/user \
+    && chmod 0440 /etc/sudoers.d/user \
+    && visudo --check --file=/etc/sudoers.d/user
+
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/include/node /usr/local/include/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s node /usr/local/bin/nodejs \
+    && ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+    && ln -s ../lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack \
+    && node --version \
+    && npm --version
 
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins /usr/local/libexec/docker/cli-plugins
@@ -81,11 +102,11 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
         "$(t3 --version)" "$(opencode --version)" "$(codex --version)" \
         > /usr/local/share/t3-code/versions
 
-ENV HOME=/home/node \
-    XDG_CONFIG_HOME=/home/node/.config \
-    XDG_STATE_HOME=/home/node/.local/state \
-    DOCKER_CONFIG=/home/node/.config/docker \
-    GIT_CONFIG_GLOBAL=/home/node/.config/git/config \
+ENV HOME=/home/user \
+    XDG_CONFIG_HOME=/home/user/.config \
+    XDG_STATE_HOME=/home/user/.local/state \
+    DOCKER_CONFIG=/home/user/.config/docker \
+    GIT_CONFIG_GLOBAL=/home/user/.config/git/config \
     T3CODE_HOME=/var/lib/t3 \
     T3CODE_HOST=0.0.0.0 \
     T3CODE_PORT=3773 \
@@ -94,19 +115,19 @@ ENV HOME=/home/node \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8
 
-RUN install -d -m 0700 -o node -g node \
-        /home/node/.config \
-        /home/node/.config/docker \
-        /home/node/.config/git \
-        /home/node/.npm \
-        /home/node/.codex \
-        /home/node/.local \
-        /home/node/.local/share \
-        /home/node/.local/share/opencode \
-        /home/node/.local/state \
-        /home/node/.ssh \
+RUN install -d -m 0700 -o user -g user \
+        /home/user/.config \
+        /home/user/.config/docker \
+        /home/user/.config/git \
+        /home/user/.npm \
+        /home/user/.codex \
+        /home/user/.local \
+        /home/user/.local/share \
+        /home/user/.local/share/opencode \
+        /home/user/.local/state \
+        /home/user/.ssh \
         /var/lib/t3 \
-    && install -d -m 0755 -o node -g node /workspace \
+    && install -d -m 0755 -o user -g user /workspace \
     && printf '%s\n' \
         'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
         'github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=' \
