@@ -4,6 +4,7 @@ set -euo pipefail
 IMAGE_REF="${1:?usage: integration.sh IMAGE_REF}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 bash "$SCRIPT_DIR/home-permissions.sh" "$IMAGE_REF"
+bash "$SCRIPT_DIR/compose-sudo.sh" "$IMAGE_REF"
 DIND_IMAGE="docker:29.9.3-dind@sha256:fafc2949724b06fd4e4bc53c446a09149b750693f0abe7f444e9eec1e138fe65"
 RUN_ID="${GITHUB_RUN_ID:-$$}"
 PREFIX="t3-code-test-${RUN_ID}"
@@ -85,7 +86,7 @@ docker run --detach \
     --env DOCKER_TLS_VERIFY=1 \
     --env DOCKER_CERT_PATH=/certs/client \
     --volume "$CLIENT_VOLUME:/certs/client:ro" \
-    --volume "$NPM_CACHE_VOLUME:/home/node/.npm" \
+    --volume "$NPM_CACHE_VOLUME:/home/user/.npm" \
     --volume "$WORKSPACE:/workspace" \
     "$IMAGE_REF" \
     >/dev/null
@@ -111,9 +112,9 @@ docker rm --force "$T3_CONTAINER" >/dev/null
 
 docker run --rm \
     --entrypoint sh \
-    --volume "$NPM_CACHE_VOLUME:/home/node/.npm" \
+    --volume "$NPM_CACHE_VOLUME:/home/user/.npm" \
     "$IMAGE_REF" \
-    -ec 'mkdir -p /home/node/.npm/_cacache/tmp && touch /home/node/.npm/_cacache/tmp/root-owned'
+    -ec 'mkdir -p /home/user/.npm/_cacache/tmp && touch /home/user/.npm/_cacache/tmp/root-owned'
 
 docker run --rm \
     --network "$NETWORK" \
@@ -121,11 +122,21 @@ docker run --rm \
     --env DOCKER_TLS_VERIFY=1 \
     --env DOCKER_CERT_PATH=/certs/client \
     --volume "$CLIENT_VOLUME:/certs/client:ro" \
-    --volume "$NPM_CACHE_VOLUME:/home/node/.npm" \
+    --volume "$NPM_CACHE_VOLUME:/home/user/.npm" \
     --volume "$WORKSPACE:/workspace" \
     "$IMAGE_REF" \
     sh -ec '
         test "$(id -u)" = 1000
+        test "$(id -un)" = user
+        test "$HOME" = /home/user
+        test "$(readlink -f /home/node)" = /home/user
+        . /etc/os-release
+        test "$ID" = ubuntu
+        test "$VERSION_ID" = 24.04
+        test "$(sudo -n id -u)" = 0
+        sudo -n apt-get --version >/dev/null
+        node --version
+        nodejs --version
         t3 --version
         opencode --version
         codex --version
@@ -133,7 +144,7 @@ docker run --rm \
         docker version
         docker compose version
         docker buildx version
-        test "$(stat -c %u:%g /home/node/.npm/_cacache/tmp/root-owned)" = 1000:1000
+        test "$(stat -c %u:%g /home/user/.npm/_cacache/tmp/root-owned)" = 1000:1000
         npm cache verify
         cd /workspace/project
         docker compose up --build --abort-on-container-exit --exit-code-from bind-test

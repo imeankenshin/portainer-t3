@@ -17,8 +17,9 @@ SSH tunnel -> host loopback -> t3-code
 
 ## Files
 
-- `Dockerfile`: non-root Node 24 image with T3 Code, OpenCode, Codex CLI, Docker CLI,
-  Compose, Buildx, GitHub CLI, and development tools.
+- `Dockerfile`: Ubuntu 24.04 LTS image with Node 24, T3 Code, OpenCode, Codex
+  CLI, Docker CLI, Compose, Buildx, GitHub CLI, and development tools. T3 Code
+  runs as `user` (UID/GID 1000), who can use `sudo` without a password.
 - `compose.yml`: parameterized two-service stack deployed once per account.
 - `work.env.example` and `personal.env.example`: non-secret Portainer stack
   variables.
@@ -29,7 +30,7 @@ SSH tunnel -> host loopback -> t3-code
 Docker CLI and DinD are fixed to `29.9.3`; npm is fixed within its bundled
 major line at `11.19.0`. These versions include fixes required by the Critical
 vulnerability gate and are updated only through reviewed dependency changes.
-Each workflow run refreshes and upgrades Debian packages before testing and
+Each workflow run refreshes and upgrades Ubuntu packages before testing and
 publishing so build caches cannot retain outdated OS packages.
 
 ## Image publishing
@@ -189,13 +190,29 @@ maps it to `32000`. Increment both sides for additional services. The SSH
 tunnel then maps the selected host-loopback port to any free local port.
 
 Run project containers that write the workspace as UID/GID 1000 whenever
-possible. The development image intentionally has no sudo and runs with
-`no-new-privileges`. If a project creates root-owned files, use a one-time root
-console from Portainer to repair ownership rather than weakening the image.
+possible. If a project creates root-owned files, repair them with
+`sudo chown -R user:user <path>`.
 
-The `node` user owns `/home/node` and its contents, including mounted home
+## Base system and privileges
+
+The development image is based on `ubuntu:24.04` (Ubuntu 24.04 LTS). Node 24
+is copied from the pinned official Node image. The image does not keep apt
+package indexes, so install additional OS packages with
+`sudo apt-get update && sudo apt-get install <package>`. Like other files
+outside the mounted volumes, they are lost when the container is recreated, so add permanent tools to the
+`Dockerfile`.
+
+T3 Code runs as `user` (UID/GID 1000, home `/home/user`). `user` can run any
+command as root with `sudo` and no password. `compose.yml` therefore does not
+set `no-new-privileges`, because that option blocks `sudo`.
+
+A container uses the kernel of its Docker host; the image cannot select it.
+`uname -r` reports the Umbrel host kernel. Linux 6.8, the Ubuntu 24.04 GA
+kernel, is reported only when the host runs Linux 6.8.
+
+The `user` account owns `/home/user` and its contents, including mounted home
 configuration and cache volumes. At startup, the entrypoint repairs ownership
-of existing home files before starting T3 Code as `node`. Symlink targets
+of existing home files before starting T3 Code as `user`. Symlink targets
 outside the home directory are not changed. This allows user tools to create,
 update, and remove files throughout the home directory.
 
@@ -203,6 +220,25 @@ To apply this repair to an existing stack, publish the updated image, merge its
 image digest update, and manually redeploy the stack in Portainer. Only the
 home subdirectories listed as volumes in `compose.yml` survive recreation;
 other home files remain in the container writable layer.
+
+### Migrating from the `node` user
+
+Earlier images ran as `node` and mounted the home volumes under `/home/node`.
+The current `compose.yml` mounts the same named volumes under `/home/user`.
+The files keep UID 1000, so no data migration is needed.
+
+The new mount paths work only with an image that has the `user` account. An
+older image started from the new `compose.yml` runs as `node` and does not see
+its SSH keys, Codex login, or configuration. Therefore:
+
+1. After merging the change to `user`, do not redeploy either stack until the
+   image digest pull request built from that change is merged.
+2. If a stack sets `T3_CODE_IMAGE`, change it to an image built from that
+   change, or remove it, before redeploying.
+
+`/home/node` is a symlink to `/home/user`, so absolute paths saved in existing
+configuration, such as `IdentityFile /home/node/.ssh/id_ed25519`, still work.
+Use `/home/user` in new configuration.
 
 ## Persistence and backup
 
