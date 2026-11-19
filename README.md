@@ -108,6 +108,12 @@ the work and personal remote development environments. See
 [`stacks/t3-code/README.md`](stacks/t3-code/README.md) before publishing or
 deploying the image.
 
+## Umbrel 管理画面の HTTPS
+
+Tailscale 接続中は `https://umbrel` で Umbrel 管理画面へアクセスできます。
+既存の T3 Code 用 HTTPS と共存する設定・証明書・復旧手順は
+[`stacks/umbrel-https/README.md`](stacks/umbrel-https/README.md) を参照してください。
+
 ## セキュリティ方針
 
 - PortainerのRBACをそのまま適用し、APIキーの権限以上の操作は不可
