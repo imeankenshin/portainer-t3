@@ -141,6 +141,8 @@ docker run --rm \
         t3 --version
         opencode --version
         codex --version
+        test "$(command -v claude)" = /home/user/.local/bin/claude
+        claude --version
         gh --version
         docker version
         docker compose version

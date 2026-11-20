@@ -31,6 +31,7 @@ if [ "$(id -u)" -eq 0 ]; then
         /home/user/.config/git \
         /home/user/.npm \
         /home/user/.codex \
+        /home/user/.claude \
         /home/user/.local \
         /home/user/.local/share \
         /home/user/.local/share/opencode \
