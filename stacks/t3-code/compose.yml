@@ -75,6 +75,7 @@ services:
       - t3_data:/var/lib/t3
       - opencode_data:/home/user/.local/share/opencode
       - codex_data:/home/user/.codex
+      - claude_data:/home/user/.claude
       - user_config:/home/user/.config
       - npm_cache:/home/user/.npm
       - ssh_data:/home/user/.ssh
@@ -117,6 +118,7 @@ volumes:
   t3_data:
   opencode_data:
   codex_data:
+  claude_data:
   user_config:
   npm_cache:
   ssh_data:

@@ -8,7 +8,8 @@ FROM ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9
 
 ARG T3_VERSION="latest"
 ARG OPENCODE_VERSION="~1.18.10"
-ARG CODEX_VERSION="~0.157.0"
+ARG CODEX_VERSION="latest"
+ARG CLAUDE_CODE_VERSION="latest"
 ARG NPM_VERSION="11.19.0"
 ARG GH_VERSION="2.98.0"
 ARG GH_AMD64_SHA256="3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de"
@@ -16,12 +17,13 @@ ARG VCS_REF="unknown"
 ARG SOURCE_URL="unknown"
 
 LABEL org.opencontainers.image.title="t3-code remote development image" \
-      org.opencontainers.image.description="Ubuntu 24.04 LTS T3 Code, OpenCode, and Codex environment with passwordless sudo and Docker Compose support" \
+      org.opencontainers.image.description="Ubuntu 24.04 LTS T3 Code, OpenCode, Codex, and Claude Code environment with passwordless sudo and Docker Compose support" \
       org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       io.portainer-t3.t3.version="${T3_VERSION}" \
       io.portainer-t3.opencode.version="${OPENCODE_VERSION}" \
       io.portainer-t3.codex.version="${CODEX_VERSION}" \
+      io.portainer-t3.claude-code.version="${CLAUDE_CODE_VERSION}" \
       io.portainer-t3.docker.version="29.9.3" \
       io.portainer-t3.npm.version="${NPM_VERSION}" \
       io.portainer-t3.gh.version="${GH_VERSION}"
@@ -101,16 +103,29 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
         --allow-scripts=opencode-ai,node-pty,msgpackr-extract \
         "t3@${T3_VERSION}" \
         "opencode-ai@${OPENCODE_VERSION}" \
-        "@openai/codex@${CODEX_VERSION}" \
     && install -d /usr/local/share/t3-code \
-    && printf 't3=%s\nopencode=%s\ncodex=%s\n' \
-        "$(T3CODE_HOME=/opt/t3-code t3 --version)" "$(opencode --version)" "$(codex --version)" \
+    && printf 't3=%s\nopencode=%s\n' \
+        "$(T3CODE_HOME=/opt/t3-code t3 --version)" "$(opencode --version)" \
         > /usr/local/share/t3-code/versions \
     && find /opt/t3-code -mindepth 1 -maxdepth 1 ! -name runtime -exec rm -rf {} + \
     && chmod -R a+rX,go-w /opt/t3-code \
     && test -f "/opt/t3-code/runtime/versions/$(npm ls --global --json t3 | jq -r '.dependencies.t3.version')/.install-complete"
 
+# Let the installer pipelines below fail when curl fails.
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# The official Codex installer keeps releases under $CODEX_HOME. Install them
+# into /opt/codex instead of the persistent ~/.codex volume, so each image
+# brings its own Codex, and link the command into /usr/local/bin.
+RUN curl -fsSL https://chatgpt.com/codex/install.sh \
+        | CODEX_HOME=/opt/codex CODEX_INSTALL_DIR=/usr/local/bin CODEX_NON_INTERACTIVE=1 \
+            sh -s -- --release "${CODEX_VERSION}" \
+    && rm -rf /opt/codex/tmp \
+    && chmod -R a+rX,go-w /opt/codex
+
 ENV HOME=/home/user \
+    PATH=/home/user/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    CLAUDE_CONFIG_DIR=/home/user/.claude \
     XDG_CONFIG_HOME=/home/user/.config \
     XDG_STATE_HOME=/home/user/.local/state \
     DOCKER_CONFIG=/home/user/.config/docker \
@@ -129,6 +144,7 @@ RUN install -d -m 0700 -o user -g user \
         /home/user/.config/git \
         /home/user/.npm \
         /home/user/.codex \
+        /home/user/.claude \
         /home/user/.local \
         /home/user/.local/share \
         /home/user/.local/share/opencode \
@@ -145,6 +161,21 @@ RUN install -d -m 0700 -o user -g user \
         'Host github.com' \
         '    StrictHostKeyChecking yes' \
         > /etc/ssh/ssh_config.d/99-github.conf
+
+# The official Claude Code installer installs into the user's home:
+# ~/.local/bin/claude and ~/.local/share/claude. Those paths stay in the image,
+# outside the persistent ~/.claude volume, so each image brings its own Claude
+# Code. Empty ~/.claude afterwards so build-time state and IDs do not seed the
+# volume or get shared between stacks.
+USER user
+RUN curl -fsSL https://claude.ai/install.sh | bash -s -- "${CLAUDE_CODE_VERSION}" \
+    && find /home/user/.claude -mindepth 1 -delete \
+    && printf 'codex=%s\nclaude=%s\n' \
+        "$(CODEX_HOME=/tmp/codex-version codex --version)" \
+        "$(CLAUDE_CONFIG_DIR=/tmp/claude-version claude --version)" \
+        | sudo tee -a /usr/local/share/t3-code/versions \
+    && rm -rf /tmp/codex-version /tmp/claude-version
+USER root
 
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/t3-code-entrypoint
 

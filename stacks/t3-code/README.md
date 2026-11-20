@@ -18,8 +18,9 @@ SSH tunnel -> host loopback -> t3-code
 ## Files
 
 - `Dockerfile`: Ubuntu 24.04 LTS image with Node 24, T3 Code, OpenCode, Codex
-  CLI, Docker CLI, Compose, Buildx, GitHub CLI, and development tools. T3 Code
-  runs as `user` (UID/GID 1000), who can use `sudo` without a password.
+  CLI, Claude Code, Docker CLI, Compose, Buildx, GitHub CLI, and development
+  tools. T3 Code runs as `user` (UID/GID 1000), who can use `sudo` without a
+  password.
 - `compose.yml`: parameterized two-service stack deployed once per account.
 - `work.env.example` and `personal.env.example`: non-secret Portainer stack
   variables.
@@ -34,6 +35,16 @@ at build time into `/opt/t3-code`, and the entrypoint links it into
 `/var/lib/t3/runtime/versions` so a container starts without that download.
 Links to runtimes from earlier images are removed; runtime directories that
 T3 Code downloaded itself are kept.
+
+Codex CLI and Claude Code are installed with their official install scripts
+(`https://chatgpt.com/codex/install.sh` and `https://claude.ai/install.sh`).
+Each workflow run resolves the latest release of both to an exact version and
+passes it to the installer. Codex is installed into `/opt/codex` and linked as
+`/usr/local/bin/codex`, so the `codex_data` volume holds only settings and
+authentication. Claude Code is installed as `user` into
+`/home/user/.local/bin` and `/home/user/.local/share/claude`, which are part of
+the image rather than a volume. A container recreated from a new image
+therefore always runs that image's versions.
 
 Docker CLI and DinD are fixed to `29.9.3`; npm is fixed within its bundled
 major line at `11.19.0`. These versions include fixes required by the Critical
@@ -59,7 +70,7 @@ Before the first deployment:
 
 The workflow also runs daily at 03:17 JST. T3 Code resolves within `0.0.x`
 from a `0.0.31` floor, OpenCode resolves within `1.18.x` from a `1.18.10`
-floor, and Codex resolves within `0.157.x` from a `0.157.0` floor. A new image
+floor, and Codex and Claude Code follow their latest releases. A new image
 does not affect either running stack until its digest pull request is merged
 and that stack is manually redeployed.
 
@@ -130,6 +141,12 @@ Codex CLI is available as `codex` in the same container. For a remote shell,
 sign in with `codex login --device-auth`, then check with `codex login status`.
 Run this separately in each stack. Codex settings and authentication are stored
 in that stack's `codex_data` volume; do not copy this volume between accounts.
+
+Claude Code is available as `claude`. Run `claude` in a remote shell and follow
+the sign-in prompt, separately in each stack. `CLAUDE_CONFIG_DIR` points to
+`/home/user/.claude`, so Claude Code settings, authentication, and
+`.claude.json` are stored in that stack's `claude_data` volume; do not copy
+this volume between accounts.
 
 ## Connecting
 
@@ -255,6 +272,7 @@ Each stack creates independent named volumes for:
 - T3 Code state
 - OpenCode state
 - Codex settings and authentication
+- Claude Code settings and authentication
 - user, Git, GitHub CLI, and Docker CLI configuration
 - npm download cache
 - SSH keys
@@ -277,8 +295,9 @@ For the safest migration:
 
 1. Back up the old `t3-code-data`, `t3-code-opencode-data`,
    `t3-code-user-config`, and `t3-code-workspace` volumes.
-2. Deploy the personal stack on `3774` and verify T3, GitHub SSH, OpenCode, Codex,
-   Docker TLS, Compose build/up/down, bind mounts, DNS, and one preview tunnel.
+2. Deploy the personal stack on `3774` and verify T3, GitHub SSH, OpenCode,
+   Codex, Claude Code, Docker TLS, Compose build/up/down, bind mounts, DNS,
+   and one preview tunnel.
 3. Stop the old stack without deleting its volumes.
 4. Deploy the work stack on `3773` and repeat the acceptance checks.
 5. Copy only the old state that belongs to the selected account into the new
