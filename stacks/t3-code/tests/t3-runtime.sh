@@ -22,6 +22,12 @@ docker run --rm \
         ln -s /opt/t3-code/runtime/versions/0.0.0 /var/lib/t3/runtime/versions/0.0.0
         chown -R root:root /var/lib/t3/runtime
 
+        # Reproduce state left by releases that ran T3 as root.
+        mkdir -p /var/lib/t3/tools/cloudflared/2026.5.2 /var/lib/t3/userdata/secrets
+        touch /var/lib/t3/userdata/secrets/legacy.bin
+        chown -R root:root /var/lib/t3/tools /var/lib/t3/userdata
+        chmod 0600 /var/lib/t3/userdata/secrets/legacy.bin
+
         exec /usr/local/bin/t3-code-entrypoint sh -ec '\''
             version="$(node -p "require(\"/usr/local/lib/node_modules/t3/package.json\").version")"
             runtime="/var/lib/t3/runtime/versions/$version"
@@ -31,6 +37,9 @@ docker run --rm \
             test "$(stat -c %U /var/lib/t3/runtime/versions)" = user
             test ! -e /var/lib/t3/runtime/versions/0.0.0
             test ! -L /var/lib/t3/runtime/versions/0.0.0
+            test "$(stat -c %U "/opt/t3-code/runtime/versions/$version")" = root
+            mkdir -p /var/lib/t3/tools/cloudflared/2026.10.4/linux-x64
+            cat /var/lib/t3/userdata/secrets/legacy.bin
             test "t3=$(t3 --version)" = "$(sed -n "/^t3=/p" /usr/local/share/t3-code/versions)"
             t3 --version | grep -Fq "$version"
             printf "T3 runtime passed\n"
