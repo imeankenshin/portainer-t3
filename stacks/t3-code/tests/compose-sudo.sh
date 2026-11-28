@@ -2,8 +2,9 @@
 set -euo pipefail
 
 # Check, with the deployed compose.yml settings, that the service runs as
-# `user` and that passwordless sudo works. A security option that blocks sudo
-# (such as no-new-privileges) or a service that starts as root fails the test.
+# `user`, that passwordless sudo works, and that `user` can use the built-in
+# dockerd. A security option that blocks sudo (such as no-new-privileges), a
+# service that starts as root, or a dockerd that fails to start fails the test.
 
 IMAGE_REF="${1:?usage: compose-sudo.sh IMAGE_REF}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,6 +32,9 @@ export DIND_BIP=10.72.0.1/24
 export DIND_ADDRESS_POOL=10.72.128.0/17
 export GIT_USER_NAME="Sudo Test"
 export GIT_USER_EMAIL=sudo-test@example.invalid
+# The default CPU limit can exceed the CPUs of a CI runner, and Docker then
+# refuses to create the container.
+export CPU_LIMIT=1.0
 
 compose() {
     docker compose --project-name "$PROJECT" \
@@ -45,9 +49,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-compose run --rm --no-deps -T t3-code sh -ec '
+compose run --rm -T t3-code sh -ec '
     test "$(id -un)" = user
     test "$(id -u)" = 1000
     test "$(sudo -n id -u)" = 0
+    docker info --format "{{.Driver}}" | grep -qx overlay2
 '
 printf 'Compose sudo passed\n'

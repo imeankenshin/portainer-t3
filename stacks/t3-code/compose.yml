@@ -1,69 +1,26 @@
 services:
-  docker:
-    image: docker:29.9.3-dind@sha256:fafc2949724b06fd4e4bc53c446a09149b750693f0abe7f444e9eec1e138fe65
-    privileged: true
-    restart: unless-stopped
-    stop_grace_period: 1m
-    environment:
-      DOCKER_TLS_CERTDIR: /certs
-      TZ: "${TZ:-Asia/Tokyo}"
-    command:
-      - "--storage-driver=overlay2"
-      - "--bip=${DIND_BIP:?Set DIND_BIP, for example 10.60.0.1/24}"
-      - "--default-address-pool=base=${DIND_ADDRESS_POOL:?Set DIND_ADDRESS_POOL, for example 10.60.128.0/17},size=24"
-      - "--dns=${DNS_PRIMARY:-1.1.1.1}"
-      - "--dns=${DNS_SECONDARY:-8.8.8.8}"
-      - "--log-driver=local"
-    dns:
-      - "${DNS_PRIMARY:-1.1.1.1}"
-      - "${DNS_SECONDARY:-8.8.8.8}"
-    ports:
-      - "127.0.0.1:${PREVIEW_HOST_START:?Set PREVIEW_HOST_START}-${PREVIEW_HOST_END:?Set PREVIEW_HOST_END}:30000-30049"
-    volumes:
-      - docker_data:/var/lib/docker
-      - docker_ca:/certs/ca
-      - docker_client:/certs/client
-      - workspace:/workspace
-    mem_limit: "${DIND_MEMORY_LIMIT:-3g}"
-    cpus: "${DIND_CPU_LIMIT:-6.0}"
-    pids_limit: 4096
-    healthcheck:
-      test:
-        - CMD
-        - docker
-        - --host=tcp://localhost:2376
-        - --tlsverify
-        - --tlscacert=/certs/client/ca.pem
-        - --tlscert=/certs/client/cert.pem
-        - --tlskey=/certs/client/key.pem
-        - info
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 30s
-    logging:
-      driver: local
-      options:
-        max-size: 10m
-        max-file: "3"
-
   t3-code:
     hostname: "${T3_ENVIRONMENT_NAME:?Set T3_ENVIRONMENT_NAME, for example business or personal}"
     image: "${T3_CODE_IMAGE:-ghcr.io/imeankenshin/t3-code@sha256:2be2e47c01fd8d991ced78b3d1563640103741e90d2185e36a05c5fda52bd2ae}"
+    # dockerd runs inside this container and needs the privileges of DinD.
+    privileged: true
     restart: unless-stopped
-    stop_grace_period: 45s
-    depends_on:
-      docker:
-        condition: service_healthy
+    # Leave time for T3 Code to stop and for dockerd to stop its containers.
+    stop_grace_period: 1m
     environment:
       TZ: "${TZ:-Asia/Tokyo}"
       T3CODE_HOME: /var/lib/t3
       T3CODE_HOST: 0.0.0.0
       T3CODE_PORT: "3773"
       T3CODE_LOG_LEVEL: "${T3CODE_LOG_LEVEL:-Info}"
-      DOCKER_HOST: tcp://docker:2376
-      DOCKER_TLS_VERIFY: "1"
-      DOCKER_CERT_PATH: /certs/client
+      DOCKERD_ENABLED: "1"
+      DOCKERD_ARGS: >-
+        --storage-driver=overlay2
+        --bip=${DIND_BIP:?Set DIND_BIP, for example 10.60.0.1/24}
+        --default-address-pool=base=${DIND_ADDRESS_POOL:?Set DIND_ADDRESS_POOL, for example 10.60.128.0/17},size=24
+        --dns=${DNS_PRIMARY:-1.1.1.1}
+        --dns=${DNS_SECONDARY:-8.8.8.8}
+        --log-driver=local
       GIT_USER_NAME: "${GIT_USER_NAME:?Set GIT_USER_NAME}"
       GIT_USER_EMAIL: "${GIT_USER_EMAIL:?Set GIT_USER_EMAIL}"
     dns:
@@ -71,6 +28,7 @@ services:
       - "${DNS_SECONDARY:-8.8.8.8}"
     ports:
       - "127.0.0.1:${T3_HOST_PORT:?Set T3_HOST_PORT}:3773"
+      - "127.0.0.1:${PREVIEW_HOST_START:?Set PREVIEW_HOST_START}-${PREVIEW_HOST_END:?Set PREVIEW_HOST_END}:30000-30049"
     volumes:
       - t3_data:/var/lib/t3
       - opencode_data:/home/user/.local/share/opencode
@@ -80,12 +38,12 @@ services:
       - npm_cache:/home/user/.npm
       - ssh_data:/home/user/.ssh
       - workspace:/workspace
-      - docker_client:/certs/client:ro
+      - docker_data:/var/lib/docker
     tmpfs:
       - /tmp:size=512m,mode=1777
-    mem_limit: "${DEV_MEMORY_LIMIT:-2g}"
-    cpus: "${DEV_CPU_LIMIT:-2.0}"
-    pids_limit: 1024
+    mem_limit: "${MEMORY_LIMIT:-5g}"
+    cpus: "${CPU_LIMIT:-6.0}"
+    pids_limit: 5120
     healthcheck:
       test:
         - CMD
@@ -113,8 +71,6 @@ networks:
 
 volumes:
   docker_data:
-  docker_ca:
-  docker_client:
   t3_data:
   opencode_data:
   codex_data:
