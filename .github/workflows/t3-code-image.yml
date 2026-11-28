@@ -91,23 +91,13 @@ jobs:
             SOURCE_URL=https://github.com/${{ github.repository }}
           cache-from: type=gha,scope=t3-code-amd64
 
-      - name: Run DinD integration test
+      - name: Run Docker-in-Docker integration test
         run: stacks/t3-code/tests/integration.sh "${TEST_IMAGE}"
 
       - name: Scan development image for fixable critical vulnerabilities
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           image-ref: ${{ env.TEST_IMAGE }}
-          format: table
-          exit-code: "1"
-          ignore-unfixed: true
-          vuln-type: os,library
-          severity: CRITICAL
-
-      - name: Scan DinD image for fixable critical vulnerabilities
-        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
-        with:
-          image-ref: docker:29.9.3-dind@sha256:fafc2949724b06fd4e4bc53c446a09149b750693f0abe7f444e9eec1e138fe65
           format: table
           exit-code: "1"
           ignore-unfixed: true
@@ -210,5 +200,5 @@ jobs:
             - Claude Code: `${{ needs.build-test.outputs.claude-code-version }}`
             - Image: `${{ needs.publish.outputs.image }}@${{ needs.publish.outputs.deployment-digest }}`
 
-            The image passed the DinD Compose integration test and the fixable Critical vulnerability gate.
+            The image passed the built-in Docker Engine Compose integration test and the fixable Critical vulnerability gate.
           add-paths: stacks/t3-code/compose.yml

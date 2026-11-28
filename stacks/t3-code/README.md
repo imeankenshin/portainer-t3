@@ -2,29 +2,33 @@
 
 This directory is the source of truth for two isolated remote development
 stacks. The work and personal stacks use the same development image, but each
-owns a separate Docker daemon, network, TLS client identity, workspace, and
-application state.
+owns a separate Docker daemon, network, workspace, and application state.
 
 ```text
-SSH tunnel -> host loopback -> t3-code
-                                |
-                                | TLS 2376
-                                v
-                         dedicated DinD
-                                |
-                         project containers
+SSH tunnel -> host loopback -> t3-code container
+                               ├─ T3 Code (user)
+                               └─ dockerd (root, /var/run/docker.sock)
+                                    |
+                                    project containers
 ```
+
+Each stack is a single privileged container. Its entrypoint starts a Docker
+Engine inside the container before T3 Code, so no DinD sidecar, TLS
+certificates, or shared certificate volumes are needed.
 
 ## Files
 
 - `Dockerfile`: Ubuntu 24.04 LTS image with Node 24, T3 Code, OpenCode, Codex
-  CLI, Claude Code, Docker CLI, Compose, Buildx, GitHub CLI, and development
-  tools. T3 Code runs as `user` (UID/GID 1000), who can use `sudo` without a
-  password.
-- `compose.yml`: parameterized two-service stack deployed once per account.
+  CLI, Claude Code, Docker Engine and CLI, Compose, Buildx, GitHub CLI, and
+  development tools. T3 Code runs as `user` (UID/GID 1000), who can use `sudo`
+  without a password.
+- `entrypoint.sh`: repairs home ownership, starts and stops the built-in
+  `dockerd`, and runs T3 Code as `user`.
+- `compose.yml`: parameterized single-service stack deployed once per account.
 - `work.env.example` and `personal.env.example`: non-secret Portainer stack
   variables.
-- `tests/integration.sh`: TLS DinD and Compose bind-mount integration test.
+- `tests/integration.sh`: built-in Docker Engine, clean shutdown, and Compose
+  bind-mount integration test.
 - `.github/workflows/t3-code-image.yml`: daily amd64 build, test, scan,
   publish, SBOM/provenance, and deployment digest pull request.
 
@@ -46,7 +50,8 @@ authentication. Claude Code is installed as `user` into
 the image rather than a volume. A container recreated from a new image
 therefore always runs that image's versions.
 
-Docker CLI and DinD are fixed to `29.9.3`; npm is fixed within its bundled
+Docker CLI and Docker Engine are fixed to `29.9.3`; both are copied from the
+pinned official `docker:29.9.3-dind` image. npm is fixed within its bundled
 major line at `11.19.0`. These versions include fixes required by the Critical
 vulnerability gate and are updated only through reviewed dependency changes.
 Each workflow run refreshes and upgrades Ubuntu packages before testing and
@@ -111,15 +116,77 @@ Optional variables and defaults:
 | --- | --- |
 | `DNS_PRIMARY` | `1.1.1.1` |
 | `DNS_SECONDARY` | `8.8.8.8` |
-| `DEV_MEMORY_LIMIT` | `2g` |
-| `DEV_CPU_LIMIT` | `2.0` |
-| `DIND_MEMORY_LIMIT` | `3g` |
-| `DIND_CPU_LIMIT` | `6.0` |
+| `MEMORY_LIMIT` | `5g` |
+| `CPU_LIMIT` | `6.0` |
 | `T3CODE_LOG_LEVEL` | `Info` |
 | `TZ` | `Asia/Tokyo` |
 
+`DIND_BIP` and `DIND_ADDRESS_POOL` set the bridge and address pool of the
+built-in Docker Engine. `MEMORY_LIMIT` and `CPU_LIMIT` limit the whole
+container, including T3 Code, the Docker Engine, and all project containers.
+The former `DEV_MEMORY_LIMIT`, `DEV_CPU_LIMIT`, `DIND_MEMORY_LIMIT`, and
+`DIND_CPU_LIMIT` variables are no longer used and can be removed.
+
 Do not deploy while `compose.yml` still references `ghcr.io/example` or the
 all-zero digest.
+
+## Built-in Docker Engine
+
+`compose.yml` sets `DOCKERD_ENABLED=1` and runs the container with
+`privileged: true`. The entrypoint then, as root:
+
+1. selects the iptables backend in the same way as the official
+   `docker:dind` image (nftables, or legacy iptables when the kernel already
+   has legacy rules or nftables is unavailable; set `DOCKER_IPTABLES_LEGACY=1`
+   to force legacy);
+2. starts `dockerd` through the official `dind` wrapper, which enables cgroup
+   v2 nesting, with `--host=unix:///var/run/docker.sock --group=docker` and
+   the flags in `DOCKERD_ARGS`;
+3. waits until the daemon answers (`DOCKERD_START_TIMEOUT`, default 60
+   seconds);
+4. starts T3 Code as `user`, a member of the `docker` group, so `docker` and
+   `docker compose` work without `sudo` or `DOCKER_HOST`.
+
+On stop, T3 Code is stopped first and `dockerd` second, so the daemon can stop
+project containers cleanly within `stop_grace_period`. If `dockerd` exits
+unexpectedly, the entrypoint stops T3 Code and exits with status 1, and the
+restart policy restarts the container. `dockerd` logs go to the container log
+together with T3 Code logs.
+
+Docker data is stored in the `docker_data` volume at `/var/lib/docker`. Do not
+start a second container from the same stack with `docker compose run`: two
+daemons must never use the same `/var/lib/docker`. Use `docker exec` or the
+Portainer console to open more shells.
+
+A plain `docker run` of the image without `DOCKERD_ENABLED=1` does not start
+`dockerd` and does not need `--privileged`.
+
+## Migrating from the DinD sidecar
+
+Earlier stacks ran a separate `docker` service (`docker:dind`) and connected
+to it over TLS. The single-container stack reuses the existing `docker_data`
+volume, so images, build cache, project volumes, and project containers are
+kept. The certificate volumes `docker_ca` and `docker_client` are no longer
+used.
+
+The new `compose.yml` works only with an image built from this change; an
+older image does not start `dockerd`, so `docker` commands in T3 Code fail.
+Therefore:
+
+1. After merging this change, do not redeploy either stack until the image
+   digest pull request built from it is merged. If a stack sets
+   `T3_CODE_IMAGE`, change it to such an image or remove it.
+2. In Portainer, stop the stack. This stops the old `docker` service, so it
+   cannot use `docker_data` at the same time as the new built-in daemon.
+3. Redeploy the stack from Git with **Prune services** enabled, so the
+   orphaned `docker` service container is removed. Without that option,
+   remove the stopped `<stack>-docker-1` container manually and do not start
+   it again.
+4. In a T3 Code terminal, run `docker info` and `docker ps -a`, and check
+   that project containers and a preview port still work.
+5. After both stacks work, optionally remove the unused
+   `<stack>_docker_ca` and `<stack>_docker_client` volumes, and the
+   `DEV_*_LIMIT` and `DIND_*_LIMIT` stack variables.
 
 ## Account onboarding
 
@@ -195,11 +262,11 @@ create a new environment. References:
 
 ## Project Compose convention
 
-Both the development container and its DinD sidecar mount the same named
-volume at `/workspace`. Relative project bind mounts therefore resolve to the
-same files from both sides.
+The Docker Engine runs in the same container and filesystem as T3 Code, so
+relative project bind mounts under `/workspace` resolve to the same files that
+T3 Code sees.
 
-Project services that need remote access must publish into DinD ports
+Project services that need remote access must publish to container ports
 `30000-30049`. For example:
 
 ```yaml
@@ -210,9 +277,11 @@ services:
     user: "1000:1000"
 ```
 
-The work stack maps inner `30000` to host loopback `31000`; the personal stack
-maps it to `32000`. Increment both sides for additional services. The SSH
-tunnel then maps the selected host-loopback port to any free local port.
+The work stack maps container port `30000` to host loopback `31000`; the
+personal stack maps it to `32000`. Increment both sides for additional
+services. A development server started directly in a T3 Code terminal can use
+the same ports, for example by listening on `0.0.0.0:30000`. The SSH tunnel
+then maps the selected host-loopback port to any free local port.
 
 Run project containers that write the workspace as UID/GID 1000 whenever
 possible. If a project creates root-owned files, repair them with
@@ -230,6 +299,12 @@ outside the mounted volumes, they are lost when the container is recreated, so a
 T3 Code runs as `user` (UID/GID 1000, home `/home/user`). `user` can run any
 command as root with `sudo` and no password. `compose.yml` therefore does not
 set `no-new-privileges`, because that option blocks `sudo`.
+
+The container runs with `privileged: true` for the built-in Docker Engine.
+Together with passwordless `sudo` and membership in the `docker` group, `user`
+has root access to the kernel of the Portainer-managed Docker host. This is
+the same level of access as before: access to the former privileged DinD
+sidecar already allowed `docker run --privileged`.
 
 A container uses the kernel of its Docker host; the image cannot select it.
 `uname -r` reports the Umbrel host kernel. Linux 6.8, the Ubuntu 24.04 GA
@@ -277,11 +352,10 @@ Each stack creates independent named volumes for:
 - npm download cache
 - SSH keys
 - workspace files
-- DinD data
-- DinD CA and client certificates
+- Docker Engine data (`/var/lib/docker`)
 
 Back up the application state, user configuration, SSH keys, and workspace.
-Treat the npm cache and DinD data as rebuildable caches, and do not copy raw
+Treat the npm cache and Docker Engine data as rebuildable caches, and do not copy raw
 `/var/lib/docker` while the daemon is running. Projects with durable development
 databases should define their own consistent dump and restore procedure.
 
@@ -296,7 +370,7 @@ For the safest migration:
 1. Back up the old `t3-code-data`, `t3-code-opencode-data`,
    `t3-code-user-config`, and `t3-code-workspace` volumes.
 2. Deploy the personal stack on `3774` and verify T3, GitHub SSH, OpenCode,
-   Codex, Claude Code, Docker TLS, Compose build/up/down, bind mounts, DNS,
+   Codex, Claude Code, Docker, Compose build/up/down, bind mounts, DNS,
    and one preview tunnel.
 3. Stop the old stack without deleting its volumes.
 4. Deploy the work stack on `3773` and repeat the acceptance checks.

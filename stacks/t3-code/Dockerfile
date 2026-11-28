@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1.12
 
-FROM docker:29.9.3-cli@sha256:b0d99f37f463c88cae2082083f705210296186c06632d22f6952ed43506ae520 AS docker-cli
+# The official DinD image provides the Docker CLI and plugins, the static
+# Docker Engine binaries, and the dind wrapper that runs dockerd in a container.
+FROM docker:29.9.3-dind@sha256:fafc2949724b06fd4e4bc53c446a09149b750693f0abe7f444e9eec1e138fe65 AS docker
 
 FROM node:24-bookworm-slim@sha256:65932751ed4073ed02f5c04e494e4b2572a891b7dbea0568a863dc80341bf848 AS node
 
@@ -17,7 +19,7 @@ ARG VCS_REF="unknown"
 ARG SOURCE_URL="unknown"
 
 LABEL org.opencontainers.image.title="t3-code remote development image" \
-      org.opencontainers.image.description="Ubuntu 24.04 LTS T3 Code, OpenCode, Codex, and Claude Code environment with passwordless sudo and Docker Compose support" \
+      org.opencontainers.image.description="Ubuntu 24.04 LTS T3 Code, OpenCode, Codex, and Claude Code environment with passwordless sudo and a built-in Docker Engine" \
       org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       io.portainer-t3.t3.version="${T3_VERSION}" \
@@ -44,6 +46,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         gosu \
         gzip \
         iproute2 \
+        iptables \
         jq \
         less \
         lsof \
@@ -57,7 +60,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 # Replace the base image's default UID 1000 account with the development user.
 RUN userdel --remove ubuntu \
-    && useradd --uid 1000 --user-group --create-home --shell /bin/bash user \
+    && groupadd --system docker \
+    && useradd --uid 1000 --user-group --groups docker --create-home --shell /bin/bash user \
     && ln -s /home/user /home/node \
     && printf '%s\n' 'user ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/user \
     && chmod 0440 /etc/sudoers.d/user \
@@ -73,8 +77,17 @@ RUN ln -s node /usr/local/bin/nodejs \
     && node --version \
     && npm --version
 
-COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
-COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins /usr/local/libexec/docker/cli-plugins
+COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker /usr/local/libexec/docker/cli-plugins /usr/local/libexec/docker/cli-plugins
+COPY --from=docker \
+    /usr/local/bin/dockerd \
+    /usr/local/bin/containerd-shim-runc-v2 \
+    /usr/local/bin/ctr \
+    /usr/local/bin/runc \
+    /usr/local/bin/docker-proxy \
+    /usr/local/bin/docker-init \
+    /usr/local/bin/dind \
+    /usr/local/bin/
 
 RUN curl --fail --location --show-error --silent \
         --retry 5 --retry-all-errors \
@@ -178,6 +191,9 @@ RUN curl -fsSL https://claude.ai/install.sh | bash -s -- "${CLAUDE_CODE_VERSION}
 USER root
 
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/t3-code-entrypoint
+
+# dockerd needs a data root outside the container's overlay filesystem.
+VOLUME /var/lib/docker
 
 WORKDIR /workspace
 EXPOSE 3773
