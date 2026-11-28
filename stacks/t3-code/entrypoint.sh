@@ -176,12 +176,12 @@ if [ "$(id -u)" -eq 0 ]; then
         /var/lib/t3/runtime \
         "$T3_RUNTIME_DIR"
     link_t3_runtimes
-    find "$T3_RUNTIME_DIR" -mindepth 1 -maxdepth 1 \
-        \( ! -user user -o ! -group user \) -exec chown -h user:user {} +
 
     # Repair existing home files and mounted state before dropping privileges.
-    # Do not follow symlinks to files outside the home directory.
-    find /home/user \( ! -user user -o ! -group user \) \
+    # The T3 state volume can hold root-owned files from releases that ran T3
+    # as root, such as tools/cloudflared, which then block relay client updates.
+    # Do not follow symlinks, such as the runtime links into /opt/t3-code.
+    find /home/user /var/lib/t3 \( ! -user user -o ! -group user \) \
         -exec chown -h user:user {} +
 
     if [ -n "${GIT_USER_NAME:-}" ] \
