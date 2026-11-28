@@ -32,6 +32,9 @@ export DIND_BIP=10.72.0.1/24
 export DIND_ADDRESS_POOL=10.72.128.0/17
 export GIT_USER_NAME="Sudo Test"
 export GIT_USER_EMAIL=sudo-test@example.invalid
+# The default CPU limit can exceed the CPUs of a CI runner, and Docker then
+# refuses to create the container.
+export CPU_LIMIT=1.0
 
 compose() {
     docker compose --project-name "$PROJECT" \
